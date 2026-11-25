@@ -7,7 +7,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"strings"
 
 	"github.com/hostryhq/go-common/events"
 	"github.com/hostryhq/go-common/inbox"
@@ -19,9 +18,6 @@ import (
 
 // ConsumerName is the durable consumer and inbox name of orders on the sync stream.
 const ConsumerName = "orders"
-
-// SyncOpPrefix is the type prefix of accepted-op events: sync.op.<namespace> (subject evt.sync.op.<namespace>.v1).
-const SyncOpPrefix = "sync.op."
 
 // PIIErasedType is the type of the gateway event that names an op whose personal data is erased
 // (ids only, ADR-0014 A2.1 item 7). The consumer applies it through go-common's erasure path.
@@ -53,12 +49,12 @@ func Apply(svc *service.Service, tx repository.Tx, env events.Envelope) error {
 	if env.Type == PIIErasedType {
 		return erase(tx, env)
 	}
-	if !strings.HasPrefix(env.Type, SyncOpPrefix) {
-		return nil
+	if _, ok := gosync.OpNamespace(env.Type); !ok {
+		return nil // gateway events (sync.op.flagged, sync.quarantine.recorded) and other types: acked, ignored
 	}
 	op, err := parser.ParseEnvelope(env)
 	if err != nil {
-		return err
+		return err // wraps inbox.ErrPermanent for a malformed op: the inbox parks it at once
 	}
 	return svc.Apply(tx, op, env.OccurredAt)
 }

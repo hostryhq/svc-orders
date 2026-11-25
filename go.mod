@@ -6,7 +6,7 @@ require (
 	github.com/getkin/kin-openapi v0.153.0
 	github.com/hostryhq/api-specs v0.0.0-20261125042121-690d4d346685
 	github.com/hostryhq/go-auth v0.0.0-20261125030157-94f1970efd79
-	github.com/hostryhq/go-common v0.0.0-20261125032613-92884d6c83f8
+	github.com/hostryhq/go-common v0.0.0-20261125080845-88a6ae93f2a8
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/oapi-codegen/runtime v1.9.1
 	gopkg.in/yaml.v3 v3.0.1

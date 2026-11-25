@@ -2,11 +2,13 @@ package events_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/hostryhq/go-common/events"
 	"github.com/hostryhq/go-common/ids"
+	"github.com/hostryhq/go-common/inbox"
 	"github.com/hostryhq/svc-orders/double"
 	oe "github.com/hostryhq/svc-orders/events"
 	"github.com/hostryhq/svc-orders/repository"
@@ -46,5 +48,24 @@ func TestConsumerProjectsVerifiedOpsAndRefusesATamperedBody(t *testing.T) {
 	}
 	if err := apply(tampered); err == nil {
 		t.Fatal("a body that does not match its hash was accepted")
+	}
+}
+
+// Gateway events share the sync.op. prefix but are not ops: they must not block the consumer (they are
+// acked and ignored), while a poison op event is a permanent error so the inbox parks it at once.
+func TestGatewayEventsDoNotBlockTheConsumerAndPoisonParks(t *testing.T) {
+	d := double.New(double.Options{})
+	apply := func(e events.Envelope) error {
+		return d.Store.InTx(context.Background(), double.Tenant, func(tx repository.Tx) error { return oe.Apply(d.Svc, tx, e) })
+	}
+	for _, typ := range []string{"sync.op.flagged", "sync.quarantine.recorded"} {
+		env := events.Envelope{ID: ids.New(), Type: typ, V: 1, Source: "sync", TenantID: double.Tenant, Data: []byte(`{}`)}
+		if err := apply(env); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+	}
+	poison := events.Envelope{ID: ids.New(), Type: "sync.op.order", V: 1, Source: "sync", TenantID: double.Tenant, Data: []byte(`{}`)}
+	if err := apply(poison); !errors.Is(err, inbox.ErrPermanent) {
+		t.Fatalf("poison op error = %v, want inbox.ErrPermanent", err)
 	}
 }

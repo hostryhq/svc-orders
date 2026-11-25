@@ -179,12 +179,17 @@ func TestInboxHandlerProjectsOnceAndPublishesTheExceptionThroughTheOutbox(t *tes
 	if env, err := events.Unmarshal(payload); err != nil || env.Source != "orders" || env.TenantID != double.Tenant || env.OutletID != double.Outlet {
 		t.Errorf("outbox envelope = %+v (%v)", env, err)
 	}
-	// a malformed op is refused (the inbox parks it after the last attempt), not half applied
+	// a malformed op is refused (a permanent error: the inbox parks it at once), not half applied
 	badOp := b.Next("check.create", double.Ins("check", id(9), map[string]any{"status": "open"}))
 	bad := &fakeDelivery{data: opEvent(t, gen, badOp)}
 	bad.data = []byte(strings.Replace(string(bad.data), "\\\"open\\\"", "\\\"billed\\\"", 1)) // the body no longer matches its hash
-	if err := sub.Process(ctx, bad); bad.naks != 1 {
-		t.Errorf("malformed op: err %v naks %d, want a redelivery request", err, bad.naks)
+	var parked int
+	if err := sub.Process(ctx, bad); err != nil || bad.naks != 0 || bad.acked != 1 {
+		t.Errorf("malformed op: err %v acked %d naks %d, want it parked and acknowledged at once", err, bad.acked, bad.naks)
+	}
+	_ = db.Admin.QueryRow(`SELECT count(*) FROM event_parked`).Scan(&parked)
+	if parked != 1 {
+		t.Errorf("%d parked events, want 1", parked)
 	}
 }
 
