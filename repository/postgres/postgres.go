@@ -57,6 +57,24 @@ func Open(ctx context.Context, dsn, role string) (*Store, error) {
 	return &Store{db: db, role: role}, nil
 }
 
+// CheckRole refuses a role that bypasses row-level security: the role the store runs queries as (the assumed
+// role when one is set, else the connection's user) must be neither a superuser nor BYPASSRLS, or tenant
+// isolation would silently not apply (security review P2-M6). Call it at start-up, after migrations (the
+// application role is created by them).
+func (s *Store) CheckRole(ctx context.Context) error {
+	var name string
+	var super, bypass bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = COALESCE(NULLIF($1, ''), current_user)`, s.role).Scan(&name, &super, &bypass)
+	if err != nil {
+		return fmt.Errorf("postgres: cannot read the application role: %w", err)
+	}
+	if super || bypass {
+		return fmt.Errorf("postgres: refusing to start: role %q is a superuser or has BYPASSRLS, so row-level security would not apply", name)
+	}
+	return nil
+}
+
 // DB returns the underlying handle (outbox relay, inbox subscriber, health, tests).
 func (s *Store) DB() *sql.DB { return s.db }
 

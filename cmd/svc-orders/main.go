@@ -145,6 +145,9 @@ func serve(ctx context.Context, c cfg, log *slog.Logger) error {
 			return err
 		}
 	}
+	if err := st.CheckRole(ctx); err != nil {
+		return err
+	}
 	cat, err := service.NewCatalogue()
 	if err != nil {
 		return err
