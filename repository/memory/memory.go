@@ -9,20 +9,26 @@ import (
 	"sync"
 
 	"github.com/hostryhq/go-common/events"
+	gosync "github.com/hostryhq/go-common/sync"
 	"github.com/hostryhq/svc-orders/repository"
 )
 
 type state struct {
 	seq        int64
-	applied    map[string]int64
-	voided     map[string]bool
-	effects    map[repository.RowKey][]repository.Effect
+	applied    map[string]repository.OpMeta
+	cands      map[gosync.RowKey]map[candID]gosync.Candidate
+	voids      map[gosync.OpRef]bool
 	rows       map[repository.RowKey]repository.Row
 	exceptions map[string]repository.Exception
 }
 
+type candID struct {
+	ref gosync.OpRef
+	idx int
+}
+
 func newState() *state {
-	return &state{applied: map[string]int64{}, voided: map[string]bool{}, effects: map[repository.RowKey][]repository.Effect{},
+	return &state{applied: map[string]repository.OpMeta{}, cands: map[gosync.RowKey]map[candID]gosync.Candidate{}, voids: map[gosync.OpRef]bool{},
 		rows: map[repository.RowKey]repository.Row{}, exceptions: map[string]repository.Exception{}}
 }
 
@@ -32,11 +38,15 @@ func (s *state) clone() *state {
 	for k, v := range s.applied {
 		c.applied[k] = v
 	}
-	for k, v := range s.voided {
-		c.voided[k] = v
+	for k, v := range s.voids {
+		c.voids[k] = v
 	}
-	for k, v := range s.effects {
-		c.effects[k] = append([]repository.Effect(nil), v...)
+	for k, m := range s.cands {
+		cp := make(map[candID]gosync.Candidate, len(m))
+		for id, c := range m { // candidates are immutable once added
+			cp[id] = c
+		}
+		c.cands[k] = cp
 	}
 	for k, v := range s.rows { // rows are replaced, never mutated in place
 		c.rows[k] = v
@@ -100,50 +110,83 @@ type tx struct {
 
 func (t *tx) Tenant() string { return t.tenant }
 
+func (t *tx) Context() context.Context { return context.Background() }
+
 func (t *tx) NextApplySeq() (int64, error) { t.st.seq++; return t.st.seq, nil }
 
 func (t *tx) OpApplied(ref string) (bool, error) { _, ok := t.st.applied[ref]; return ok, nil }
 
-func (t *tx) MarkApplied(ref string, n int64) error { t.st.applied[ref] = n; return nil }
-
-func (t *tx) OpVoided(ref string) (bool, error) { return t.st.voided[ref], nil }
-
-func (t *tx) MarkVoided(ref string) error { t.st.voided[ref] = true; return nil }
-
-func (t *tx) AddEffect(e repository.Effect) error {
-	k := repository.RowKey{Entity: e.Entity, ID: e.ID}
-	t.st.effects[k] = append(t.st.effects[k], e)
+func (t *tx) MarkApplied(ref string, m repository.OpMeta) error {
+	if _, ok := t.st.applied[ref]; !ok {
+		t.st.applied[ref] = m
+	}
 	return nil
 }
 
-func (t *tx) EffectsOf(entity, id string) ([]repository.Effect, error) {
-	return append([]repository.Effect(nil), t.st.effects[repository.RowKey{Entity: entity, ID: id}]...), nil
-}
-
-func (t *tx) RemoveEffectsOfOp(ref string) ([]repository.RowKey, error) {
-	var touched []repository.RowKey
-	for k, es := range t.st.effects {
-		kept := es[:0:0]
-		hit := false
-		for _, e := range es {
-			if e.Op == ref {
-				hit = true
-				continue
-			}
-			kept = append(kept, e)
-		}
-		if hit {
-			touched = append(touched, k)
-			t.st.effects[k] = kept
+func (t *tx) OpMetas(refs []string) (map[string]repository.OpMeta, error) {
+	out := make(map[string]repository.OpMeta, len(refs))
+	for _, r := range refs {
+		if m, ok := t.st.applied[r]; ok {
+			out[r] = m
 		}
 	}
-	sort.Slice(touched, func(i, j int) bool {
-		if touched[i].Entity != touched[j].Entity {
-			return touched[i].Entity < touched[j].Entity
+	return out, nil
+}
+
+// SyncStore implements repository.Tx: the candidates and voids of the transaction's copy of the state.
+func (t *tx) SyncStore() gosync.Store { return syncStore{t.st} }
+
+type syncStore struct{ st *state }
+
+func (s syncStore) AddCandidate(_ context.Context, k gosync.RowKey, c gosync.Candidate) error {
+	m := s.st.cands[k]
+	if m == nil {
+		m = map[candID]gosync.Candidate{}
+		s.st.cands[k] = m
+	}
+	if _, ok := m[candID{c.Ref, c.Idx}]; !ok {
+		m[candID{c.Ref, c.Idx}] = c
+	}
+	return nil
+}
+
+func (s syncStore) Candidates(_ context.Context, k gosync.RowKey) ([]gosync.Candidate, error) {
+	out := make([]gosync.Candidate, 0, len(s.st.cands[k]))
+	for _, c := range s.st.cands[k] {
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (s syncStore) RowsOfOp(_ context.Context, tenant string, r gosync.OpRef) ([]gosync.RowKey, error) {
+	var out []gosync.RowKey
+	for k, m := range s.st.cands {
+		if k.Tenant != tenant {
+			continue
 		}
-		return touched[i].ID < touched[j].ID
-	})
-	return touched, nil
+		for id := range m {
+			if id.ref == r {
+				out = append(out, k)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (s syncStore) AddVoid(_ context.Context, _ string, r gosync.OpRef) error {
+	s.st.voids[r] = true
+	return nil
+}
+
+func (s syncStore) Voided(_ context.Context, _ string, refs []gosync.OpRef) (map[gosync.OpRef]bool, error) {
+	out := map[gosync.OpRef]bool{}
+	for _, r := range refs {
+		if s.st.voids[r] {
+			out[r] = true
+		}
+	}
+	return out, nil
 }
 
 func (t *tx) PutRow(r repository.Row) error {

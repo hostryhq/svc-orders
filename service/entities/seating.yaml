@@ -1,0 +1,54 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/seating.yaml; DO NOT EDIT.
+entity: seating
+entity_v: 1
+owner: orders
+stream: outlet
+policy: rank
+id:
+  rule: client_uuidv7
+description: A table's occupancy. Table status is derived from open seatings, never stored. Two devices opening
+  one table while partitioned create two seatings; both survive and the manager is offered a merge.
+fields:
+  table_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: dining_table
+    description: Table.
+  business_date:
+    type: date
+    required: true
+    policy: immutable
+    description: Business date it was opened on.
+  covers:
+    type: int
+    required: false
+    policy: immutable
+    minimum: 0
+    description: Guests, optional.
+  guest_name:
+    type: string
+    required: false
+    policy: immutable
+    pii: true
+    max_length: 40
+    description: Optional name.
+  status:
+    type: enum
+    values:
+    - open
+    - billed
+    - closed
+    required: true
+    policy: rank
+    order:
+    - open
+    - billed
+    - closed
+    description: 'Forward-only: open, billed, closed.'
+detectors:
+- two open seatings on one table
+written_by_intents:
+- seating.open
+- bill.finalize
+- seating.close

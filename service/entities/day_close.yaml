@@ -1,0 +1,135 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/day_close.yaml; DO NOT EDIT.
+entity: day_close
+entity_v: 1
+owner: billing
+stream: outlet
+policy: append
+guarded: true
+id:
+  rule: client_uuidv7
+description: 'A day was closed: the cutoff, totals and series ranges the device printed. If two devices close the
+  same date the lowest stamp is canonical; the other stays as a fact and its difference is a revision (A1.1 item
+  4).'
+fields:
+  business_day_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: business_day
+    description: Day.
+  z_number:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 40
+    description: Display number Z/<business date>/<device code>; no running counter.
+  cutoff:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 4000
+    description: Version vector of the outlet stream the device held, canonical JSON text.
+  gross_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Sum of line values before discounts.
+    policy: immutable
+  discount_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Total discount (line and bill level).
+    policy: immutable
+  net_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Lines after discounts.
+    policy: immutable
+  service_charge_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Service charge.
+    policy: immutable
+  cgst_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Total CGST.
+    policy: immutable
+  sgst_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Total SGST.
+    policy: immutable
+  non_gst_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Non-GST subtotal incl. its charge share.
+    policy: immutable
+  round_off_paise:
+    type: paise
+    required: true
+    description: Signed round-off line.
+    policy: immutable
+  total_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Total.
+    policy: immutable
+  bill_count:
+    type: int
+    required: true
+    minimum: 0
+    description: Bills.
+    policy: immutable
+  credit_note_count:
+    type: int
+    required: true
+    minimum: 0
+    description: Credit notes.
+    policy: immutable
+  credit_note_total_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Credit note total.
+    policy: immutable
+  refund_total_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Refunds.
+    policy: immutable
+  internal_consumption_paise:
+    type: paise
+    required: true
+    minimum: 0
+    description: Internal consumption list value (not sales).
+    policy: immutable
+  tenders_json:
+    type: string
+    required: true
+    max_length: 4000
+    description: 'Canonical JSON text: [{tender, name, count, amount_paise}]. x-provisional: array-valued facts
+      travel as canonical JSON strings until the engine supports child rows.'
+    policy: immutable
+  series_ranges_json:
+    type: string
+    required: true
+    max_length: 4000
+    description: 'Canonical JSON text: [{series_code, doc_type, first_number, last_number, count}].'
+    policy: immutable
+detectors:
+- late document (outside the canonical cutoff)
+replicated_to:
+- service: orders
+  purpose: The day-close detectors need to know whether a day was closed and when; no money total is displayed from it.
+  guarded_exception: ADR-0014 A2.4 item 2 lists day_close for orders although the entity is guarded; the replica is read-only and shown in no total (ADR inconsistency reported for the architect).
+written_by_intents:
+- day.close

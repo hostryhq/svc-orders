@@ -17,19 +17,6 @@ import (
 	"github.com/hostryhq/svc-orders/repository"
 )
 
-// FieldDef is the conflict policy of one field (ADR-0002 S6), generated from the entity files.
-type FieldDef struct {
-	Type   string
-	Policy string // immutable, lww, lww_review, delta, rank
-	Order  []string
-}
-
-// EntityDef is one projected entity.
-type EntityDef struct {
-	Owner  string
-	Fields map[string]FieldDef
-}
-
 type catalogueEntry struct {
 	Key, Realm, Service                                                string
 	Sensitive, StrongOnly, SupportViewable, SupportActable, OwnerGrant bool

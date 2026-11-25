@@ -31,8 +31,8 @@ func (f finding) key() fkey { return fkey{f.Kind, f.SubjectKind, f.SubjectID, f.
 
 // detect runs the detectors that the touched rows can change. Each detector is a derived query
 // over the projection (never an op); a finding closes itself when it no longer holds.
-func (s *Service) detect(tx repository.Tx, op Op, touched map[repository.RowKey]bool, arrived time.Time) error {
-	outlet := op.Outlet()
+func (s *Service) detect(tx repository.Tx, op *Op, touched map[repository.RowKey]bool, arrived time.Time) error {
+	outlet := outletOf(op)
 	checks := map[string]bool{}
 	kots := map[string]bool{}
 	cancels := map[string]bool{}
@@ -69,6 +69,15 @@ func (s *Service) detect(tx repository.Tx, op Op, touched map[repository.RowKey]
 			cancels[k.ID] = true
 		case "seating", "seating_move", "seating_merge":
 			seatings = true
+		case "outlet_settings":
+			// the stale-ticket window changed: re-judge every ticket still waiting for a print (replica row, A2.4 item 4)
+			ks, err := tx.Rows(repository.RowQuery{Entity: "kot", Outlet: outlet})
+			if err != nil {
+				return err
+			}
+			for _, k := range ks {
+				kots[k.ID] = true
+			}
 		case "day_close", "business_day":
 			ids, err := s.checksOfClosedDay(tx, outlet)
 			if err != nil {
@@ -173,7 +182,7 @@ func remaining(line repository.Row, cancels []repository.Row) int64 {
 	return q
 }
 
-func (s *Service) evalCheck(tx repository.Tx, outlet, checkID string, op Op, arrived time.Time) error {
+func (s *Service) evalCheck(tx repository.Tx, outlet, checkID string, op *Op, arrived time.Time) error {
 	chk, ok, err := tx.GetRow("check", checkID)
 	if err != nil {
 		return err
@@ -278,7 +287,7 @@ func (s *Service) staleAfter(tx repository.Tx, outlet string) time.Duration {
 	return s.Cfg.KotStaleAfter
 }
 
-func (s *Service) evalKot(tx repository.Tx, outlet, kotID string, op Op, arrived time.Time) error {
+func (s *Service) evalKot(tx repository.Tx, outlet, kotID string, op *Op, arrived time.Time) error {
 	universe := map[fkey]bool{}
 	var found []finding
 	xs, err := tx.Exceptions(repository.ExceptionQuery{Outlet: outlet, Kind: KindLateTicket, SubjectKind: "kot", SubjectIDs: []string{kotID}})
@@ -325,7 +334,7 @@ func dateOfLine(tx repository.Tx, outlet, lineID string) (checkID, date string) 
 	return c.ID, c.BusinessDate
 }
 
-func (s *Service) evalCancel(tx repository.Tx, outlet, cancelID string, op Op, arrived time.Time) error {
+func (s *Service) evalCancel(tx repository.Tx, outlet, cancelID string, op *Op, arrived time.Time) error {
 	universe := map[fkey]bool{}
 	var found []finding
 	xs, err := tx.Exceptions(repository.ExceptionQuery{Outlet: outlet, Status: "open", Kind: KindGraceStarted, SubjectIDs: []string{cancelID}})
@@ -426,7 +435,7 @@ func currentTables(tx repository.Tx, outlet string) (map[string][]string, error)
 	return by, nil
 }
 
-func (s *Service) evalSeatings(tx repository.Tx, outlet string, op Op, arrived time.Time) error {
+func (s *Service) evalSeatings(tx repository.Tx, outlet string, op *Op, arrived time.Time) error {
 	by, err := currentTables(tx, outlet)
 	if err != nil {
 		return err
@@ -452,7 +461,7 @@ func (s *Service) evalSeatings(tx repository.Tx, outlet string, op Op, arrived t
 }
 
 // reconcile opens, updates and closes the exceptions of the universe so they equal found.
-func (s *Service) reconcile(tx repository.Tx, outlet string, universe map[fkey]bool, found []finding, op Op, arrived time.Time) error {
+func (s *Service) reconcile(tx repository.Tx, outlet string, universe map[fkey]bool, found []finding, op *Op, arrived time.Time) error {
 	byKey := map[fkey]finding{}
 	for _, f := range found {
 		byKey[f.key()] = f
@@ -489,7 +498,7 @@ func (s *Service) reconcile(tx repository.Tx, outlet string, universe map[fkey]b
 			}
 		case exists && cur.Status == "open":
 			t := arrived.UTC()
-			cur.Status, cur.ResolvedAt, cur.ResolvedBy = "resolved", &t, op.Ref()
+			cur.Status, cur.ResolvedAt, cur.ResolvedBy = "resolved", &t, op.Ref.String()
 			if err := tx.PutException(cur); err != nil {
 				return err
 			}
@@ -498,7 +507,7 @@ func (s *Service) reconcile(tx repository.Tx, outlet string, universe map[fkey]b
 	return nil
 }
 
-func (s *Service) publishOpened(tx repository.Tx, x repository.Exception, op Op, reopened bool) error {
+func (s *Service) publishOpened(tx repository.Tx, x repository.Exception, op *Op, reopened bool) error {
 	data := map[string]any{"exception_id": x.ID, "kind": x.Kind, "severity": x.Severity, "subject_kind": x.SubjectKind, "subject_id": x.SubjectID}
 	if x.BusinessDate != "" {
 		data["business_date"] = x.BusinessDate

@@ -10,6 +10,7 @@ import (
 
 	"github.com/hostryhq/go-common/events"
 	"github.com/hostryhq/go-common/inbox"
+	gosync "github.com/hostryhq/go-common/sync"
 	"github.com/hostryhq/svc-orders/repository"
 	"github.com/hostryhq/svc-orders/repository/postgres"
 	"github.com/hostryhq/svc-orders/service"
@@ -21,14 +22,18 @@ const ConsumerName = "orders"
 // SyncOpPrefix is the type prefix of accepted-op events: sync.op.<namespace> (subject evt.sync.op.<namespace>.v1).
 const SyncOpPrefix = "sync.op."
 
+// parser is go-common/sync's ParseOp: the one parser of op events (ADR-0014 A2.1). It verifies the body
+// hash, the identity fields and the value types, and refuses a malformed op.
+var parser gosync.Parser
+
 // Apply projects the op carried by a sync op event into tx. Events of other types, and ops of
-// entities orders does not project, are ignored. A malformed op returns an error: the inbox parks
+// entities orders does not project, are ignored. A malformed op (bad hash, identity or values) returns an error: the inbox parks
 // it after the last attempt, so it is neither lost nor blocks the consumer.
 func Apply(svc *service.Service, tx repository.Tx, env events.Envelope) error {
 	if !strings.HasPrefix(env.Type, SyncOpPrefix) {
 		return nil
 	}
-	op, err := service.ParseOp(env.Data)
+	op, err := parser.ParseEnvelope(env)
 	if err != nil {
 		return err
 	}

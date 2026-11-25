@@ -1,0 +1,30 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/seating_merge.yaml; DO NOT EDIT.
+entity: seating_merge
+entity_v: 1
+owner: orders
+stream: outlet
+policy: append
+id:
+  rule: client_uuidv7
+description: Two seatings merged on the kept table; the absorbed seating's checks keep their ids.
+fields:
+  kept_seating_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: seating
+    description: Kept seating.
+  absorbed_seating_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: seating
+    description: Absorbed seating.
+  kept_table_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: dining_table
+    description: Table kept.
+written_by_intents:
+- order.table.merge

@@ -1,0 +1,43 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/check_present_change.yaml; DO NOT EDIT.
+entity: check_present_change
+entity_v: 1
+owner: orders
+stream: outlet
+policy: append
+id:
+  rule: client_uuidv7
+description: A change to a presented check, with its reason, listed per member (RM-O24 item 1).
+fields:
+  check_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: check
+    description: Check.
+  after_present_count:
+    type: int
+    required: true
+    policy: immutable
+    minimum: 1
+    description: Present count the change came after.
+  change_kind:
+    type: enum
+    values:
+    - line_added
+    - line_removed
+    - discount
+    - customer
+    - charge
+    - split
+    - merge
+    required: true
+    policy: immutable
+    description: What changed.
+  reason_code_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: reason_code
+    description: Reason.
+written_by_intents:
+- bill.present.change

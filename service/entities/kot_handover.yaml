@@ -1,0 +1,27 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/kot_handover.yaml; DO NOT EDIT.
+entity: kot_handover
+entity_v: 1
+owner: orders
+stream: outlet
+policy: append
+id:
+  rule: client_uuidv7
+description: A KOT given by hand or by word (ADR-0014 A1.6 item 2). The printing device never prints an original
+  for it.
+fields:
+  kot_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: kot
+    description: Ticket.
+  mode:
+    type: enum
+    values:
+    - by_hand
+    - verbal
+    required: true
+    policy: immutable
+    description: by_hand or verbal.
+written_by_intents:
+- kot.handover

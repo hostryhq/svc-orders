@@ -11,9 +11,9 @@ package integration
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,7 +53,7 @@ func TestRowLevelSecurityIsolatesTenants(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, "SET LOCAL ROLE orders_app"); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"projection_rows", "effects", "exceptions", "applied_ops"} {
+	for _, table := range []string{"projection_rows", "sync_candidates", "sync_voids", "exceptions", "applied_ops"} {
 		var n int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Errorf("%s with no tenant context: %d rows, err %v; want 0", table, n, err)
@@ -67,7 +67,7 @@ func TestRowLevelSecurityIsolatesTenants(t *testing.T) {
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM projection_rows").Scan(&n); err != nil || n != 0 {
 		t.Errorf("tenant B sees %d of A's rows (err %v)", n, err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO voided_ops (tenant_id, op_ref) VALUES ($1, 'x')`, double.Tenant); err == nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sync_voids (tenant_id, origin, stream, seq) VALUES ($1, 'o', 's', 1)`, double.Tenant); err == nil {
 		t.Error("tenant B wrote a row for tenant A")
 	}
 	// through the store, B reads nothing of A's
@@ -129,12 +129,13 @@ func (f *fakeDelivery) NumDelivered() uint64    { return 1 }
 func (f *fakeDelivery) Ack() error              { f.acked++; return nil }
 func (f *fakeDelivery) Nak(time.Duration) error { f.naks++; return errors.New("nak") }
 
-func opEvent(t *testing.T, gen *ids.Generator, op service.Op, body map[string]any) []byte {
+// opEvent is the bus message of an op: the real wire shape with its body hash, so the consumer parses it with go-common/sync.
+func opEvent(t *testing.T, gen *ids.Generator, op *service.Op) []byte {
 	t.Helper()
-	b, _ := json.Marshal(body)
-	data, _ := json.Marshal(map[string]any{"origin": op.Origin, "stream": op.Stream, "seq": op.Seq, "intent": op.Intent, "status": "accepted", "body": string(b)})
-	env := events.Envelope{ID: gen.New(), Type: "sync.op.order", V: 1, Source: "sync", TenantID: ids.ID(double.Tenant), Key: op.Origin + "/" + op.Stream, KeySeq: op.Seq,
-		OccurredAt: double.Start, Data: data}
+	env, err := double.OpEnvelope(gen.New(), op)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, err := env.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -151,18 +152,11 @@ func TestInboxHandlerProjectsOnceAndPublishesTheExceptionThroughTheOutbox(t *tes
 	sub := &inbox.Subscriber{DB: db.Store.DB(), Consumer: oe.ConsumerName, Handle: oe.Handler(svc, db.Store), Now: clk.Now}
 	gen := clk.IDs()
 
-	stream := "outlet:" + double.Outlet
-	body := func(seq int64, hlc string, muts ...service.Mut) (service.Op, map[string]any) {
-		op := service.Op{Origin: double.Device, Stream: stream, Seq: seq}
-		return op, map[string]any{"hlc": hlc, "actor": double.Member, "at": double.Start.Format(time.RFC3339Nano), "muts": muts}
-	}
-	mk := func(seq int64, hlc string, muts ...service.Mut) *fakeDelivery {
-		op, b := body(seq, hlc, muts...)
-		return &fakeDelivery{data: opEvent(t, gen, op, b)}
-	}
-	chk := mk(1, "0000000000000001", double.Ins("check", id(3), map[string]any{"order_type": "dine_in", "business_date": double.Day, "status": "open"}))
-	bill := mk(2, "0000000000000002", double.Set("rank", "check", id(3), map[string]any{"status": "billed"}))
-	line := mk(3, "0000000000000003", double.Ins("order_line", id(4), map[string]any{"check_id": id(3), "qty_milli": int64(1000), "state": "draft"}))
+	b := double.NewOpBuilder(double.Device, "outlet:"+double.Outlet, double.Member).At(double.Start)
+	mk := func(op *service.Op) *fakeDelivery { return &fakeDelivery{data: opEvent(t, gen, op)} }
+	chk := mk(b.Next("check.create", double.Ins("check", id(3), map[string]any{"order_type": "dine_in", "business_date": double.Day, "status": "open"})))
+	bill := mk(b.Next("bill.finalize", double.Set("rank", "check", id(3), map[string]any{"status": "billed"})))
+	line := mk(b.Next("order.line.add", double.Ins("order_line", id(4), map[string]any{"check_id": id(3), "qty_milli": int64(1000), "state": "draft"})))
 	for _, d := range []*fakeDelivery{chk, bill, line, line} { // the last one is a redelivery of the same event
 		if err := sub.Process(ctx, d); err != nil {
 			t.Fatal(err)
@@ -186,7 +180,9 @@ func TestInboxHandlerProjectsOnceAndPublishesTheExceptionThroughTheOutbox(t *tes
 		t.Errorf("outbox envelope = %+v (%v)", env, err)
 	}
 	// a malformed op is refused (the inbox parks it after the last attempt), not half applied
-	bad := &fakeDelivery{data: opEvent(t, gen, service.Op{Origin: double.Device, Stream: stream, Seq: 0}, map[string]any{})}
+	badOp := b.Next("check.create", double.Ins("check", id(9), map[string]any{"status": "open"}))
+	bad := &fakeDelivery{data: opEvent(t, gen, badOp)}
+	bad.data = []byte(strings.Replace(string(bad.data), "\\\"open\\\"", "\\\"billed\\\"", 1)) // the body no longer matches its hash
 	if err := sub.Process(ctx, bad); bad.naks != 1 {
 		t.Errorf("malformed op: err %v naks %d, want a redelivery request", err, bad.naks)
 	}
@@ -202,7 +198,7 @@ func TestFailedProjectionRollsBackTheInboxRow(t *testing.T) {
 		_ = svc
 		return boom
 	}}
-	d := &fakeDelivery{data: opEvent(t, clk.IDs(), service.Op{Origin: "o", Stream: "outlet:x", Seq: 1}, map[string]any{})}
+	d := &fakeDelivery{data: opEvent(t, clk.IDs(), double.NewOpBuilder(double.Device, "outlet:"+double.Outlet, double.Member).Next("check.create"))}
 	_ = sub.Process(ctx, d)
 	var n int
 	_ = db.Admin.QueryRow(`SELECT count(*) FROM inbox`).Scan(&n)

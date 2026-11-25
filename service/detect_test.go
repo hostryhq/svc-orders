@@ -46,7 +46,7 @@ func TestGraceCancelOfAStartedLineAndAllowance(t *testing.T) {
 	f.basicCheck()
 	f.ingest(f.b.Next("kot.send", ins("kot_line", id(7), map[string]any{"kot_id": id(12), "order_line_id": id(4), "status": "new"})))
 	f.ingest(f.b.Next("kds.status", double.Set("rank", "kot_line", id(7), map[string]any{"status": "preparing"})))
-	cancel := func(n int, kitchen string) service.Op {
+	cancel := func(n int, kitchen string) *service.Op {
 		return f.b.Next("order.line.cancel.grace", ins("order_line_cancel", id(20+n), map[string]any{"order_line_id": id(4), "kind": "grace_cancel", "qty_milli": int64(1),
 			"kitchen_status_at_cancel": kitchen, "wastage": false}))
 	}

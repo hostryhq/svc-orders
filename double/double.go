@@ -151,12 +151,12 @@ func (d *Double) ServiceToken(caller, tenant string) string {
 
 // Ingest projects ops for a tenant, the way the bus consumer does. The arrival time of an op is its
 // own timestamp, so seeded history carries no late tickets.
-func (d *Double) Ingest(ctx context.Context, tenant string, ops ...service.Op) error {
+func (d *Double) Ingest(ctx context.Context, tenant string, ops ...*Op) error {
 	return d.Store.InTx(ctx, tenant, func(tx repository.Tx) error {
 		for _, op := range ops {
-			arrived := Start
-			if t, err := time.Parse(time.RFC3339Nano, op.At); err == nil {
-				arrived = t
+			arrived := op.At
+			if arrived.IsZero() {
+				arrived = Start
 			}
 			if err := d.Svc.Apply(tx, op, arrived); err != nil {
 				return err
@@ -206,24 +206,4 @@ func (d *Double) ExampleHeader() http.Header {
 	h.Set("Authorization", "Bearer "+d.Token(Tenant, Member, []string{Outlet}, "order.edit", "exceptions.view", "report.view.outlet"))
 	h.Set("Hostry-Service-Token", d.ServiceToken("billing", Tenant))
 	return h
-}
-
-// SpecOutletExample is the X-Outlet-Id example of common/components.yaml, which names an outlet other
-// than the example world's (docs/notes.md N8).
-const SpecOutletExample = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c"
-
-type outletRewrite struct{ next http.RoundTripper }
-
-func (t outletRewrite) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.Header.Get("X-Outlet-Id") == SpecOutletExample {
-		r = r.Clone(r.Context())
-		r.Header.Set("X-Outlet-Id", Outlet)
-	}
-	return t.next.RoundTrip(r)
-}
-
-// ExampleClient is an HTTP client for the contract suite that sends the example world's outlet where
-// the specification's header example names another one.
-func ExampleClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Second, Transport: outletRewrite{http.DefaultTransport}}
 }

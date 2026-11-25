@@ -1,0 +1,34 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/order_line_modifier.yaml; DO NOT EDIT.
+entity: order_line_modifier
+entity_v: 1
+owner: orders
+stream: outlet
+policy: append
+id:
+  rule: client_uuidv7
+description: A modifier option chosen on an order line (snapshot).
+fields:
+  order_line_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: order_line
+    description: Line.
+  modifier_id:
+    type: id
+    required: true
+    policy: immutable
+    description: Modifier.
+  name:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 40
+    description: Name snapshot.
+  price_delta_paise:
+    type: paise
+    required: true
+    policy: immutable
+    description: Delta snapshot per unit.
+written_by_intents:
+- order.line.add

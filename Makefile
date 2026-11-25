@@ -9,7 +9,7 @@ export GOPRIVATE ?= github.com/hostryhq/*
 .PHONY: gen test vet lint integration
 
 # gen regenerates internal/gen (types and net/http server) with the pinned oapi-codegen, plus
-# api/policy_gen.go, service/catalogue_gen.go, service/entities_gen.go and events/subscriptions_gen.go,
+# api/policy_gen.go, service/catalogue_gen.go, service/entities/*.yaml and events/subscriptions_gen.go,
 # and records the api-specs commit in GEN_SOURCE. It needs a bundled spec: run `make bundle` in api-specs first.
 gen:
 	@test -f $(API_SPECS)/build/orders.yaml || (echo "run 'make bundle' in $(API_SPECS) first" && exit 1)

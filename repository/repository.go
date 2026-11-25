@@ -1,5 +1,5 @@
 // Package repository holds the persistence contract of svc-orders: the projection of synced
-// entities (rows derived from op effects), the applied-op and void bookkeeping, detector
+// entities (rows derived from the engine's candidates), the applied-op bookkeeping, detector
 // exceptions and the transactional outbox. The service depends on these interfaces only; the
 // in-memory implementation (repository/memory) backs the test double and unit tests, the
 // PostgreSQL one (repository/postgres) backs the real service.
@@ -15,43 +15,17 @@ import (
 	"time"
 
 	"github.com/hostryhq/go-common/events"
+	gosync "github.com/hostryhq/go-common/sync"
 )
 
-// Effect is one mutation of one row, kept for good (the "candidates" of ADR-0002 S6): a row is a
-// pure function of its effects, so two nodes holding the same ops and voids hold the same row
-// whatever the arrival order.
-type Effect struct {
-	Op       string // origin/stream/seq
-	Idx      int    // position of the mutation inside the op
-	Entity   string
-	ID       string
-	OutletID string
-	Kind     string // insert, set, delta, rank, del, undel
-	Fields   map[string]any
-	HLC      string // 16 hex characters; sorts like time
-	Origin   string
-	Seq      int64
-	At       string // the op's own timestamp (device clock), RFC 3339
-	Actor    string // member that recorded the op, when it has one
-	ApplySeq int64  // arrival order at this service, per tenant
-	Arrived  time.Time
-}
-
-// Stamp orders effects: HLC, then origin, then seq, then position in the op.
-func (e Effect) Stamp() string { return StampOf(e.HLC, e.Origin, e.Seq, e.Idx) }
-
-// StampOf builds the sortable stamp text.
-func StampOf(hlc, origin string, seq int64, idx int) string {
-	return hlc + "|" + origin + "|" + pad(seq, 12) + "|" + pad(int64(idx), 4)
-}
-
-func pad(n int64, w int) string {
-	s := make([]byte, w)
-	for i := w - 1; i >= 0; i-- {
-		s[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(s)
+// OpMeta is what the projection keeps about an applied op beside the engine's candidates: the
+// facts the engine does not carry but orders' derivations and detectors need.
+type OpMeta struct {
+	ApplySeq int64     // arrival order at this service, per tenant
+	At       string    // the op's own timestamp (device clock), RFC 3339
+	Actor    string    // member that recorded the op, when it has one
+	OutletID string    // outlet of the op's stream
+	Arrived  time.Time // when this service received it
 }
 
 // Meta is what the projection derives about a row beyond its fields.
@@ -128,18 +102,18 @@ type ExceptionQuery struct {
 // Tx is a transaction on one tenant.
 type Tx interface {
 	Tenant() string
+	// Context is the context of the transaction, for the engine's store calls.
+	Context() context.Context
 
 	// NextApplySeq returns the next arrival number of the tenant (1, 2, ...).
 	NextApplySeq() (int64, error)
 	OpApplied(ref string) (bool, error)
-	MarkApplied(ref string, applySeq int64) error
-	OpVoided(ref string) (bool, error)
-	MarkVoided(ref string) error
+	MarkApplied(ref string, m OpMeta) error
+	// OpMetas returns the facts of the named ops (key: OpRef.String()); an op never applied is absent.
+	OpMetas(refs []string) (map[string]OpMeta, error)
 
-	AddEffect(e Effect) error
-	EffectsOf(entity, id string) ([]Effect, error)
-	// RemoveEffectsOfOp deletes the effects of an op and returns the rows they touched.
-	RemoveEffectsOfOp(ref string) ([]RowKey, error)
+	// SyncStore is the go-common/sync candidate and void store of this transaction (ADR-0014 A2.1).
+	SyncStore() gosync.Store
 
 	PutRow(r Row) error
 	DeleteRow(entity, id string) error

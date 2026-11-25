@@ -19,6 +19,7 @@ import (
 	"github.com/hostryhq/go-common/events"
 	"github.com/hostryhq/go-common/ids"
 	"github.com/hostryhq/go-common/outbox"
+	gosync "github.com/hostryhq/go-common/sync"
 	"github.com/hostryhq/go-common/tenancy"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 
@@ -162,6 +163,8 @@ type tx struct {
 
 func (t *tx) Tenant() string { return t.tenant }
 
+func (t *tx) Context() context.Context { return t.ctx }
+
 func (t *tx) NextApplySeq() (int64, error) {
 	var n int64
 	err := t.sql.QueryRowContext(t.ctx, `INSERT INTO apply_counter (tenant_id, n) VALUES ($1, 1)
@@ -175,54 +178,36 @@ func (t *tx) OpApplied(ref string) (bool, error) {
 	return ok, err
 }
 
-func (t *tx) MarkApplied(ref string, n int64) error {
-	_, err := t.sql.ExecContext(t.ctx, `INSERT INTO applied_ops (tenant_id, op_ref, apply_seq) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, t.tenant, ref, n)
+func (t *tx) MarkApplied(ref string, m repository.OpMeta) error {
+	_, err := t.sql.ExecContext(t.ctx, `INSERT INTO applied_ops (tenant_id, op_ref, apply_seq, at, actor, outlet_id, arrived) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+		t.tenant, ref, m.ApplySeq, m.At, m.Actor, m.OutletID, m.Arrived)
 	return err
 }
 
-func (t *tx) OpVoided(ref string) (bool, error) {
-	var ok bool
-	err := t.sql.QueryRowContext(t.ctx, `SELECT EXISTS (SELECT 1 FROM voided_ops WHERE tenant_id=$1 AND op_ref=$2)`, t.tenant, ref).Scan(&ok)
-	return ok, err
-}
-
-func (t *tx) MarkVoided(ref string) error {
-	_, err := t.sql.ExecContext(t.ctx, `INSERT INTO voided_ops (tenant_id, op_ref) VALUES ($1,$2) ON CONFLICT DO NOTHING`, t.tenant, ref)
-	return err
-}
-
-func (t *tx) AddEffect(e repository.Effect) error {
-	f, err := json.Marshal(e.Fields)
-	if err != nil {
-		return err
+func (t *tx) OpMetas(refs []string) (map[string]repository.OpMeta, error) {
+	out := make(map[string]repository.OpMeta, len(refs))
+	if len(refs) == 0 {
+		return out, nil
 	}
-	_, err = t.sql.ExecContext(t.ctx, `INSERT INTO effects (tenant_id, op_ref, idx, entity, id, outlet_id, kind, fields, hlc, origin, seq, at, actor, apply_seq, arrived)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING`,
-		t.tenant, e.Op, e.Idx, e.Entity, e.ID, e.OutletID, e.Kind, f, e.HLC, e.Origin, e.Seq, e.At, e.Actor, e.ApplySeq, e.Arrived)
-	return err
-}
-
-func (t *tx) EffectsOf(entity, id string) ([]repository.Effect, error) {
-	rows, err := t.sql.QueryContext(t.ctx, `SELECT op_ref, idx, outlet_id, kind, fields, hlc, origin, seq, at, actor, apply_seq, arrived
-		FROM effects WHERE tenant_id=$1 AND entity=$2 AND id=$3 ORDER BY apply_seq, idx`, t.tenant, entity, id)
+	rows, err := t.sql.QueryContext(t.ctx, `SELECT op_ref, apply_seq, at, actor, outlet_id, arrived FROM applied_ops WHERE tenant_id=$1 AND op_ref = ANY($2)`, t.tenant, refs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []repository.Effect
 	for rows.Next() {
-		e := repository.Effect{Entity: entity, ID: id}
-		var f []byte
-		if err := rows.Scan(&e.Op, &e.Idx, &e.OutletID, &e.Kind, &f, &e.HLC, &e.Origin, &e.Seq, &e.At, &e.Actor, &e.ApplySeq, &e.Arrived); err != nil {
+		var ref string
+		var m repository.OpMeta
+		if err := rows.Scan(&ref, &m.ApplySeq, &m.At, &m.Actor, &m.OutletID, &m.Arrived); err != nil {
 			return nil, err
 		}
-		if e.Fields, err = decodeFields(f); err != nil {
-			return nil, err
-		}
-		out = append(out, e)
+		m.Arrived = m.Arrived.UTC()
+		out[ref] = m
 	}
 	return out, rows.Err()
 }
+
+// SyncStore implements repository.Tx: the engine's candidates and voids in this transaction.
+func (t *tx) SyncStore() gosync.Store { return gosync.PGStore{DB: t.sql} }
 
 // decodeFields reads a JSON object keeping integers as int64 (the projection compares and sums them).
 func decodeFields(b []byte) (map[string]any, error) {
@@ -240,27 +225,6 @@ func decodeFields(b []byte) (map[string]any, error) {
 		}
 	}
 	return m, nil
-}
-
-func (t *tx) RemoveEffectsOfOp(ref string) ([]repository.RowKey, error) {
-	rows, err := t.sql.QueryContext(t.ctx, `DELETE FROM effects WHERE tenant_id=$1 AND op_ref=$2 RETURNING entity, id`, t.tenant, ref)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	seen := map[repository.RowKey]bool{}
-	var out []repository.RowKey
-	for rows.Next() {
-		var k repository.RowKey
-		if err := rows.Scan(&k.Entity, &k.ID); err != nil {
-			return nil, err
-		}
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, k)
-		}
-	}
-	return out, rows.Err()
 }
 
 func (t *tx) PutRow(r repository.Row) error {

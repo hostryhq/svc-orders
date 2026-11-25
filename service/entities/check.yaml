@@ -1,0 +1,150 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/check.yaml; DO NOT EDIT.
+entity: check
+entity_v: 1
+owner: orders
+stream: outlet
+policy: mixed
+id:
+  rule: client_uuidv7
+description: 'The open, unnumbered grouping of order lines that will be billed together (ADR-0014 R2). Status moves
+  forward only. Draft money fields (discount, charge removal) are lww + review: a concurrent edit keeps the winner
+  and asks a manager.'
+fields:
+  seating_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: seating
+    description: Seating; absent for counter and takeaway.
+  order_type:
+    type: enum
+    values:
+    - dine_in
+    - takeaway
+    - counter
+    required: true
+    policy: immutable
+    description: Type.
+  label:
+    type: string
+    required: false
+    policy: lww
+    max_length: 20
+    description: Label of the bill on the table.
+  token_no:
+    type: int
+    required: false
+    policy: immutable
+    minimum: 1
+    description: Display token number.
+  business_date:
+    type: date
+    required: true
+    policy: immutable
+    description: Business date it was opened on.
+  status:
+    type: enum
+    values:
+    - open
+    - closed_internal
+    - billed
+    required: true
+    policy: rank
+    order:
+    - open
+    - closed_internal
+    - billed
+    description: open, then closed_internal (staff meal and similar) or billed (a bill exists). closed_internal
+      is provisional (O2-1).
+  bill_id:
+    type: id
+    required: false
+    policy: lww
+    group: bill
+    ref: bill
+    description: The bill made from this check; set by bill.finalize.
+  discount_kind:
+    type: enum
+    values:
+    - percent
+    - amount
+    required: false
+    policy: lww_review
+    group: discount
+    description: Bill-level discount kind.
+  discount_value:
+    type: int
+    required: false
+    policy: lww_review
+    group: discount
+    minimum: 0
+    description: Basis points or paise.
+  discount_reason_code_id:
+    type: id
+    required: false
+    policy: lww_review
+    group: discount
+    description: Reason.
+  service_charge_removed:
+    type: bool
+    required: false
+    policy: lww_review
+    group: charges
+    description: Service charge removed on this check.
+  packing_charge_removed:
+    type: bool
+    required: false
+    policy: lww_review
+    group: charges
+    description: Packing charge removed on this check.
+  customer_name:
+    type: string
+    required: false
+    policy: lww
+    group: customer
+    pii: true
+    max_length: 60
+    description: Guest name.
+  customer_phone:
+    type: string
+    required: false
+    policy: lww
+    group: customer
+    pii: true
+    max_length: 20
+    description: Takeaway phone; never printed on tickets.
+  customer_gstin:
+    type: string
+    required: false
+    policy: lww_review
+    group: customer
+    max_length: 15
+    description: Guest GSTIN, validated.
+  eco_channel:
+    type: enum
+    values:
+    - swiggy
+    - zomato
+    - other
+    required: false
+    policy: lww
+    group: customer
+    description: Aggregator channel; absent for none.
+  served_only:
+    type: bool
+    required: false
+    policy: lww
+    description: 'Already served, bill only: no KOT (RM-O29).'
+detectors:
+- two bills from one check (also billing)
+- check closed internally and billed
+written_by_intents:
+- check.create
+- bill.new
+- bill.split
+- bill.merge
+- bill.discount.apply
+- bill.customer_details.edit
+- bill.service_charge.remove
+- bill.finalize
+- check.close_internal

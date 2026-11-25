@@ -18,8 +18,8 @@ import (
 
 // The view types are JSON-identical to the schemas of openapi/orders/v1; the api layer writes them as is.
 
-// NilID stands in for a required id the synced row does not carry (see docs/notes.md N4).
-const NilID = "00000000-0000-7000-8000-000000000000"
+// Optional references: a reference the row or its replica does not carry is absent from the JSON, never a
+// placeholder id (ADR-0014 A2.4 item 4, docs/notes.md N4).
 
 type CheckLine struct {
 	OrderLineID   string      `json:"order_line_id"`
@@ -93,8 +93,8 @@ type CancellationRow struct {
 	ItemName      string      `json:"item_name"`
 	QtyMilli      int64       `json:"qty_milli"`
 	ListValue     money.Money `json:"list_value"`
-	ReasonCodeID  string      `json:"reason_code_id"`
-	MemberID      string      `json:"member_id"`
+	ReasonCodeID  string      `json:"reason_code_id,omitempty"`
+	MemberID      string      `json:"member_id,omitempty"`
 	Wastage       bool        `json:"wastage"`
 	KitchenStatus string      `json:"kitchen_status"`
 	CancelledAt   string      `json:"cancelled_at"`
@@ -121,12 +121,12 @@ type KotLogRow struct {
 	KotID        string `json:"kot_id"`
 	KotNo        string `json:"kot_no"`
 	Kind         string `json:"kind"`
-	StationID    string `json:"station_id"`
+	StationID    string `json:"station_id,omitempty"`
 	CheckID      string `json:"check_id"`
 	LineCount    int    `json:"line_count"`
 	SentAt       string `json:"sent_at"`
-	MemberID     string `json:"member_id"`
-	DeviceID     string `json:"device_id"`
+	MemberID     string `json:"member_id,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
 	Printed      bool   `json:"printed"`
 	Handover     string `json:"handover,omitempty"`
 	ReprintCount int    `json:"reprint_count"`
@@ -143,7 +143,7 @@ type KotLogReport struct {
 }
 
 type KitchenTimeRow struct {
-	StationID           string `json:"station_id"`
+	StationID           string `json:"station_id,omitempty"`
 	BusinessDate        string `json:"business_date"`
 	LineCount           int    `json:"line_count"`
 	MedianPrepSeconds   int64  `json:"median_prep_seconds"`
@@ -166,8 +166,8 @@ type PresentLogRow struct {
 	ContentHash  string      `json:"content_hash"`
 	Total        money.Money `json:"total"`
 	Mode         string      `json:"mode"`
-	MemberID     string      `json:"member_id"`
-	DeviceID     string      `json:"device_id"`
+	MemberID     string      `json:"member_id,omitempty"`
+	DeviceID     string      `json:"device_id,omitempty"`
 	PresentedAt  string      `json:"presented_at"`
 	ChangesAfter int         `json:"changes_after"`
 	Billed       bool        `json:"billed"`
@@ -191,8 +191,8 @@ type PresentLogReport struct {
 
 type OpenCheckRow struct {
 	CheckID            string      `json:"check_id"`
-	SeatingID          string      `json:"seating_id"`
-	TableName          string      `json:"table_name"`
+	SeatingID          string      `json:"seating_id,omitempty"`
+	TableName          string      `json:"table_name,omitempty"`
 	Label              string      `json:"label"`
 	OpenedBusinessDate string      `json:"opened_business_date"`
 	CarriedOver        bool        `json:"carried_over"`
@@ -243,13 +243,6 @@ func ts(s string) string {
 }
 
 func tsTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
-
-func orNil(s string) string {
-	if s == "" {
-		return NilID
-	}
-	return s
-}
 
 // lineValue is quantity (thousandths) times the unit price plus modifiers, rounded half up to the paisa.
 func lineValue(l repository.Row, qtyMilli int64) int64 {

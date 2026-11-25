@@ -26,4 +26,5 @@ func TestContractAgainstPostgres(t *testing.T) {
 		return double.SeedInto(ctx, d, world)
 	}
 	contract.Run(t, contract.Options(srv.URL, d.ExampleHeader(), seed))
+	t.Run("examples", func(t *testing.T) { contract.RunExamples(t, contract.Options(srv.URL, d.ExampleHeader(), seed)) })
 }

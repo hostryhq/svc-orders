@@ -17,7 +17,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/hostryhq/api-specs/contracttest"
 	"github.com/hostryhq/svc-orders/api"
-	"github.com/hostryhq/svc-orders/double"
 )
 
 // SpecPath is the orders OpenAPI document: HOSTRY_API_SPECS (an api-specs checkout) when set, else
@@ -76,7 +75,7 @@ func CheckCoverage(t *testing.T) {
 // Options builds the harness options for a target.
 func Options(base string, header http.Header, seed func(ctx context.Context, world string) error) contracttest.Options {
 	return contracttest.Options{
-		SpecPath: SpecPath(), BaseURL: base, Header: header, Client: double.ExampleClient(),
+		SpecPath: SpecPath(), BaseURL: base, Header: header,
 		SeedWorld: seed,
 	}
 }

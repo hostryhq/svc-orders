@@ -116,7 +116,7 @@ func (s *Service) CancellationReport(ctx context.Context, f ReportFilter) (Cance
 				waste += v
 			}
 			rows = append(rows, CancellationRow{Kind: kind, OrderLineID: c.line.ID, CheckID: c.check.ID, ItemName: str(c.line.Fields["name"]), QtyMilli: q,
-				ListValue: money.New(v), ReasonCodeID: orNil(str(c.cancel.Fields["reason_code_id"])), MemberID: orNil(c.cancel.Meta.CreatedBy), Wastage: w,
+				ListValue: money.New(v), ReasonCodeID: str(c.cancel.Fields["reason_code_id"]), MemberID: c.cancel.Meta.CreatedBy, Wastage: w,
 				KitchenStatus: ks, CancelledAt: ts(c.cancel.Meta.CreatedAt), BusinessDate: c.check.BusinessDate})
 		}
 		pg, next, err := page(rows, func(r CancellationRow) string { return r.CancelledAt + "|" + r.OrderLineID + "|" + r.Kind }, f.Cursor, f.Limit)
@@ -179,8 +179,8 @@ func (s *Service) KotLog(ctx context.Context, f ReportFilter) (KotLogReport, err
 			if maxCopy[k.ID] > 1 {
 				rc = int(maxCopy[k.ID] - 1)
 			}
-			rows = append(rows, KotLogRow{KotID: k.ID, KotNo: str(k.Fields["kot_no"]), Kind: str(k.Fields["kind"]), StationID: orNil(stations[str(k.Fields["station_code"])]),
-				CheckID: str(k.Fields["check_id"]), LineCount: lc, SentAt: ts(k.Meta.CreatedAt), MemberID: orNil(k.Meta.CreatedBy), DeviceID: orNil(k.Meta.Origin),
+			rows = append(rows, KotLogRow{KotID: k.ID, KotNo: str(k.Fields["kot_no"]), Kind: str(k.Fields["kind"]), StationID: stations[str(k.Fields["station_code"])],
+				CheckID: str(k.Fields["check_id"]), LineCount: lc, SentAt: ts(k.Meta.CreatedAt), MemberID: k.Meta.CreatedBy, DeviceID: k.Meta.Origin,
 				Printed: printed[k.ID], Handover: hand[k.ID], ReprintCount: rc, BusinessDate: k.BusinessDate})
 		}
 		pg, next, err := page(rows, func(r KotLogRow) string { return r.SentAt + "|" + r.KotID }, f.Cursor, f.Limit)
@@ -246,7 +246,7 @@ func (s *Service) KitchenTimes(ctx context.Context, f ReportFilter) (KitchenTime
 			}
 			for _, l := range lines {
 				k := kotByID[l.Parent]
-				a := get(gk{orNil(stations[str(k.Fields["station_code"])]), k.BusinessDate})
+				a := get(gk{stations[str(k.Fields["station_code"])], k.BusinessDate})
 				a.lines++
 				ready := l.Meta.RankAt["status"]["ready"]
 				if ready == "" {
@@ -264,7 +264,7 @@ func (s *Service) KitchenTimes(ctx context.Context, f ReportFilter) (KitchenTime
 		for _, c := range cs {
 			switch str(c.cancel.Fields["kitchen_status_at_cancel"]) {
 			case "preparing", "ready", "served":
-				get(gk{orNil(stations[str(c.line.Fields["station_code"])]), c.check.BusinessDate}).cancelled++
+				get(gk{stations[str(c.line.Fields["station_code"])], c.check.BusinessDate}).cancelled++
 			}
 		}
 		var rows []KitchenTimeRow
@@ -321,7 +321,7 @@ func (s *Service) PresentLog(ctx context.Context, f ReportFilter) (PresentLogRep
 			}
 			n := intOf(p.Fields["present_count"])
 			rows = append(rows, PresentLogRow{CheckID: c.ID, PresentCount: int(n), ContentHash: str(p.Fields["content_hash"]), Total: money.New(intOf(p.Fields["total_paise"])),
-				Mode: str(p.Fields["mode"]), MemberID: orNil(p.Meta.CreatedBy), DeviceID: orNil(p.Meta.Origin), PresentedAt: ts(p.Meta.CreatedAt),
+				Mode: str(p.Fields["mode"]), MemberID: p.Meta.CreatedBy, DeviceID: p.Meta.Origin, PresentedAt: ts(p.Meta.CreatedAt),
 				ChangesAfter: after[ck{c.ID, n}], Billed: billed, BusinessDate: c.BusinessDate})
 		}
 		pg, next, err := page(rows, func(r PresentLogRow) string { return r.PresentedAt + "|" + r.CheckID + "|" + itoa(r.PresentCount+1000) }, f.Cursor, f.Limit)
@@ -361,7 +361,7 @@ func (s *Service) OpenChecks(ctx context.Context, f ReportFilter) (OpenChecksRep
 				return err
 			}
 			total += t
-			rows = append(rows, OpenCheckRow{CheckID: c.ID, SeatingID: orNil(str(c.Fields["seating_id"])), TableName: tables[str(c.Fields["seating_id"])], Label: str(c.Fields["label"]),
+			rows = append(rows, OpenCheckRow{CheckID: c.ID, SeatingID: str(c.Fields["seating_id"]), TableName: tables[str(c.Fields["seating_id"])], Label: str(c.Fields["label"]),
 				OpenedBusinessDate: c.BusinessDate, CarriedOver: closed, Presented: parts.presents[c.ID] > 0, LineCount: live, ListTotal: money.New(t)})
 		}
 		pg, next, err := page(rows, func(r OpenCheckRow) string { return r.OpenedBusinessDate + "|" + r.CheckID }, f.Cursor, f.Limit)
@@ -393,18 +393,6 @@ func tableNames(tx repository.Tx, outlet string) (map[string]string, error) {
 		}
 	}
 	return out, nil
-}
-
-// ownedEntities are the entities orders owns, in name order (the digest covers exactly these).
-func ownedEntities() []string {
-	var out []string
-	for n, d := range entityDefs {
-		if d.Owner == "orders" {
-			out = append(out, n)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // ProjectionDigest hashes the owned rows of an outlet business day (ADR-0014 T9). A row belongs to the

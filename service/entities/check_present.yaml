@@ -1,0 +1,47 @@
+# Copied by cmd/gen from api-specs 1462fb8dbe93f1ab33343bbf3926e47b48ab7f03 entities/restaurant/check_present.yaml; DO NOT EDIT.
+entity: check_present
+entity_v: 1
+owner: orders
+stream: outlet
+policy: append
+id:
+  rule: client_uuidv7
+description: 'A recorded Present: the unnumbered pre-bill printed or displayed to the guest (ADR-0014 A1.5 item
+  3). Member and device are the op''s actor and origin.'
+fields:
+  check_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: check
+    description: Check.
+  present_count:
+    type: int
+    required: true
+    policy: immutable
+    minimum: 1
+    description: 1 for the first Present, then 2, 3.
+  content_hash:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 64
+    description: Hash of the content shown.
+  total_paise:
+    type: paise
+    required: true
+    policy: immutable
+    minimum: 0
+    description: Estimated total shown.
+  mode:
+    type: enum
+    values:
+    - printed
+    - displayed
+    required: true
+    policy: immutable
+    description: printed or displayed.
+detectors:
+- presented check not billed, cancelled or carried over at close
+written_by_intents:
+- bill.present

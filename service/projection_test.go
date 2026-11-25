@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	gosync "github.com/hostryhq/go-common/sync"
 	"github.com/hostryhq/svc-orders/double"
 	"github.com/hostryhq/svc-orders/repository"
 	"github.com/hostryhq/svc-orders/service"
@@ -26,7 +27,7 @@ func newFixture(t *testing.T) *fixture {
 	return &fixture{t: t, d: d, b: double.NewOpBuilder(double.Device, "outlet:"+double.Outlet, double.Member), ctx: context.Background()}
 }
 
-func (f *fixture) ingest(ops ...service.Op) {
+func (f *fixture) ingest(ops ...*service.Op) {
 	f.t.Helper()
 	if err := f.d.Ingest(f.ctx, double.Tenant, ops...); err != nil {
 		f.t.Fatal(err)
@@ -90,10 +91,10 @@ func TestApplyIsIdempotentOnOpIdentity(t *testing.T) {
 }
 
 func TestRowsConvergeWhateverTheArrivalOrder(t *testing.T) {
-	build := func() []service.Op {
+	build := func() []*service.Op {
 		b := double.NewOpBuilder(double.Device, "outlet:"+double.Outlet, double.Member)
 		b2 := double.NewOpBuilder(id(90), "outlet:"+double.Outlet, id(91)).At(double.Start.Add(-25 * time.Minute))
-		return []service.Op{
+		return []*service.Op{
 			b.Next("check.create", ins("check", id(3), map[string]any{"order_type": "dine_in", "business_date": double.Day, "status": "open", "label": "A"})),
 			b.Next("bill.customer_details.edit", double.Set("set", "check", id(3), map[string]any{"label": "B"})),
 			b2.Next("bill.customer_details.edit", double.Set("set", "check", id(3), map[string]any{"label": "C"})),
@@ -145,8 +146,10 @@ func TestVoidRemovesTheEffectAndLaterArrivalOfAVoidedOpIsIgnored(t *testing.T) {
 	edit := f.b.Next("bill.customer_details.edit", double.Set("set", "check", id(3), map[string]any{"label": "refused"}))
 	f.ingest(edit)
 	cloud := double.NewOpBuilder("cloud-1", "outlet:"+double.Outlet, "").At(double.Start)
-	void := func(o service.Op) service.Op {
-		return cloud.Next("sync.void", ins("sync_void", o.Stream+"|"+o.Origin+"|"+fmt.Sprint(o.Seq), map[string]any{"reason": "refused"}))
+	void := func(o *service.Op) *service.Op {
+		v := cloud.Next("sync.void")
+		v.Voids = []gosync.OpRef{o.Ref} // what ParseOp reads from the sync_void records
+		return v
 	}
 	f.ingest(void(edit))
 	if c, _ := f.row("check", id(3)); c.Fields["label"] != "A" {
@@ -164,17 +167,5 @@ func TestEntitiesOrdersDoesNotProjectAreIgnored(t *testing.T) {
 	f.ingest(f.b.Next("bill.finalize", ins("bill", id(8), map[string]any{"total_paise": int64(100)}), ins("payment", id(9), map[string]any{"amount_paise": int64(100)})))
 	if _, ok := f.row("bill", id(8)); ok {
 		t.Fatal("a bill is owned by billing and must not be projected")
-	}
-}
-
-func TestParseOpReadsTheBusEventData(t *testing.T) {
-	data := []byte(`{"origin":"dev","stream":"outlet:o1","seq":3,"intent":"seating.open","status":"accepted",` +
-		`"body":"{\"hlc\":\"0000000000000001\",\"actor\":\"m1\",\"at\":\"2026-11-24T12:00:00Z\",\"muts\":[{\"e\":\"seating\",\"id\":\"s1\",\"k\":\"insert\",\"f\":{\"covers\":4}}]}"}`)
-	op, err := service.ParseOp(data)
-	if err != nil || op.Ref() != "dev/outlet:o1/3" || op.Outlet() != "o1" || op.Muts[0].F["covers"] != int64(4) || op.Actor != "m1" {
-		t.Fatalf("op = %+v err = %v", op, err)
-	}
-	if _, err := service.ParseOp([]byte(`{"origin":"dev"}`)); err == nil {
-		t.Fatal("an op event with no stream or seq must be refused")
 	}
 }

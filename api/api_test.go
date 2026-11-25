@@ -179,7 +179,7 @@ func TestReportsOfTheBaseWorld(t *testing.T) {
 	}
 	_, b = c.get("/v1/reports/open-checks", h)
 	oc := decode[service.OpenChecksReport](t, b)
-	if oc.Totals.Count != 1 || oc.Totals.ListTotal.AmountPaise != 52000 || oc.Items[0].TableName != "T4" || !oc.Items[0].Presented {
+	if oc.Totals.Count != 1 || oc.Totals.ListTotal.AmountPaise != 52000 || oc.Items[0].TableName != "T1" || !oc.Items[0].Presented {
 		t.Errorf("open checks = %+v", oc)
 	}
 	_, b = c.get("/v1/checks/"+double.Check, h)
@@ -205,7 +205,7 @@ func TestProjectionDigestIsStableAndSensitive(t *testing.T) {
 	for _, e := range d1.Entities {
 		counts[e.Entity] = e.RowCount
 	}
-	if counts["check"] != 1 || counts["order_line"] != 1 || counts["kot_line"] != 1 || counts["order_line_cancel"] != 1 {
+	if counts["check"] != 1 || counts["order_line"] != 2 || counts["kot_line"] != 2 || counts["order_line_cancel"] != 1 {
 		t.Fatalf("row counts = %v", counts)
 	}
 	ops := double.NewOpBuilder("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7f00", "outlet:"+double.Outlet, double.Member).At(double.Start)

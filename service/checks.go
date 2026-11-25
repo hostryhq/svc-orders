@@ -69,7 +69,7 @@ func (s *Service) loadParts(tx repository.Tx, outlet string, checks []repository
 			if !want[lid] {
 				continue
 			}
-			if rankIndex(kitchenOrder, k.Fields["status"]) > rankIndex(kitchenOrder, p.kitchen[lid]) {
+			if indexIn(kitchenOrder, str(k.Fields["status"])) > indexIn(kitchenOrder, p.kitchen[lid]) {
 				p.kitchen[lid] = str(k.Fields["status"])
 			}
 		}
