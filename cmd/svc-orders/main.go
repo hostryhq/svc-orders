@@ -30,6 +30,7 @@ import (
 	"github.com/hostryhq/go-common/inbox"
 	"github.com/hostryhq/go-common/logx"
 	"github.com/hostryhq/go-common/outbox"
+	"github.com/hostryhq/go-common/restore"
 	"github.com/hostryhq/svc-orders/api"
 	"github.com/hostryhq/svc-orders/events"
 	"github.com/hostryhq/svc-orders/repository/postgres"
@@ -41,6 +42,7 @@ type cfg struct {
 	Migrate                          bool
 	NATSURL, NATSSeedFile            string
 	TenantJWKS, TenantIssuer         string
+	PlatformDSN                      string
 	TenantAudience, ServiceKeys      string
 	SelfName                         string
 	KeyRefresh                       time.Duration
@@ -55,7 +57,8 @@ func loadConfig(lookup config.Lookup) (cfg, error) {
 		NATSURL: l.String("HOSTRY_NATS_URL", ""), NATSSeedFile: l.String("HOSTRY_NATS_SEED_FILE", ""),
 		TenantJWKS: l.Required("ORDERS_TENANT_JWKS"), TenantIssuer: l.String("ORDERS_TENANT_ISSUER", "hostry-identity"),
 		TenantAudience: l.String("ORDERS_TENANT_AUDIENCE", "hostry-tenant"), ServiceKeys: l.Required("ORDERS_SERVICE_KEYS"),
-		SelfName: l.String("ORDERS_SELF_NAME", "orders"), KeyRefresh: l.Duration("ORDERS_KEY_REFRESH", 5*time.Minute),
+		PlatformDSN: l.Required("ORDERS_PLATFORM_DSN"),
+		SelfName:    l.String("ORDERS_SELF_NAME", "orders"), KeyRefresh: l.Duration("ORDERS_KEY_REFRESH", 5*time.Minute),
 	}
 	c.Service = service.Config{KotStaleAfter: l.Duration("ORDERS_KOT_STALE_AFTER", 15*time.Minute), GraceCancelAllowance: l.Int("ORDERS_GRACE_CANCEL_ALLOWANCE", 10)}
 	if c.NATSURL != "" && c.NATSSeedFile == "" {
@@ -162,8 +165,29 @@ func serve(ctx context.Context, c cfg, log *slog.Logger) error {
 		Tenant:   &auth.Verifier{Keys: keys, Issuer: c.TenantIssuer, Audience: c.TenantAudience, Realm: auth.RealmTenant},
 		Services: &auth.ServiceVerifier{Registry: auth.NewStaticKeySet(svcDoc), Self: c.SelfName}})
 
+	// ADR-0002 A2.4: the restore guard settles the epoch before the service reports ready and before
+	// the outbox relay starts. Orders keeps no state a restore invalidates beyond what op replay
+	// rebuilds (apply is idempotent on op identity), so the hook only reports.
+	guard := restore.NewGuard(restore.NewReader(c.PlatformDSN), restore.NewSQLState(st.DB(), true), log)
+	guard.OnRestore("orders-report-restore", func(_ context.Context, from string, to restore.Epoch) error {
+		log.Warn("restore epoch changed: projection converges by op replay", "from", from, "to", to.EpochID)
+		return nil
+	})
+	hc.Add("restore", guard.Check)
+	if err := guard.Run(ctx); err != nil {
+		log.Error("restore guard not settled; service stays not ready", "error", err)
+		go func() {
+			for guard.Run(ctx) != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+				}
+			}
+		}()
+	}
 	if c.NATSURL != "" {
-		if err := startBus(ctx, c, st, svc, log); err != nil {
+		if err := startBus(ctx, c, st, svc, log, guard.Done()); err != nil {
 			return err
 		}
 	} else {
@@ -184,7 +208,7 @@ func serve(ctx context.Context, c cfg, log *slog.Logger) error {
 }
 
 // startBus runs the outbox relay (exceptions out) and the durable consumer of sync ops (ops in).
-func startBus(ctx context.Context, c cfg, st *postgres.Store, svc *service.Service, log *slog.Logger) error {
+func startBus(ctx context.Context, c cfg, st *postgres.Store, svc *service.Service, log *slog.Logger, ready <-chan struct{}) error {
 	nc, err := bus.Connect(c.NATSURL, "orders", c.NATSSeedFile)
 	if err != nil {
 		return err
@@ -204,13 +228,18 @@ func startBus(ctx context.Context, c cfg, st *postgres.Store, svc *service.Servi
 		}}
 	go func() {
 		defer nc.Close()
+		select { // no relay and no consumer before the restore guard settled
+		case <-ready:
+		case <-ctx.Done():
+			return
+		}
+		go func() {
+			if err := sub.Run(ctx, cons.Source(2*time.Second)); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("sync op consumer stopped", "error", err)
+			}
+		}()
 		if err := relay.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("outbox relay stopped", "error", err)
-		}
-	}()
-	go func() {
-		if err := sub.Run(ctx, cons.Source(2*time.Second)); err != nil && !errors.Is(err, context.Canceled) {
-			log.Error("sync op consumer stopped", "error", err)
 		}
 	}()
 	return nil

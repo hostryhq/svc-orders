@@ -34,6 +34,7 @@ Configuration is environment only; secrets by file path.
 | `ORDERS_MIGRATE` | `true` applies migrations at start; or run `svc-orders migrate` |
 | `ORDERS_TENANT_JWKS` (required), `ORDERS_TENANT_ISSUER`, `ORDERS_TENANT_AUDIENCE` | identity signing keys (URL or file), issuer and audience |
 | `ORDERS_SERVICE_KEYS` (required) | JWKS of the service-token keys; `ORDERS_SELF_NAME` (default `orders`) |
+| `ORDERS_PLATFORM_DSN` (required) | read-only DSN of `platform_meta`; the restore guard (go-common `restore`) reads the epoch once at start and gates `/readyz` and the relay |
 | `HOSTRY_NATS_URL`, `HOSTRY_NATS_SEED_FILE` | bus; without them nothing is consumed and events stay in the outbox |
 | `ORDERS_LISTEN` (`:8083`), `ORDERS_KEY_REFRESH` | listener, key refresh |
 | `ORDERS_KOT_STALE_AFTER` (15m), `ORDERS_GRACE_CANCEL_ALLOWANCE` (10) | detector defaults (notes N5) |
