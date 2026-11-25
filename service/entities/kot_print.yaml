@@ -1,8 +1,9 @@
-# Copied by cmd/gen from api-specs b153c6221cef0d256ded73b464b8b62c38e6999f entities/restaurant/kot_print.yaml; DO NOT EDIT.
+# Copied by cmd/gen from api-specs 690d4d3466855ad1d17893f3847bd8780e4c57ea entities/restaurant/kot_print.yaml; DO NOT EDIT.
 entity: kot_print
 entity_v: 1
 owner: orders
 stream: outlet
+day_parent: kot_id
 policy: append
 id:
   rule: client_uuidv7
