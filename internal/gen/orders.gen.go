@@ -762,7 +762,7 @@ type EntityDigest struct {
 	// Example: order_line
 	Entity string `json:"entity"`
 
-	// Hash Lowercase hex SHA-256 of the canonical rows.
+	// Hash Lowercase hex SHA-256 over the canonical row texts of the entity, ascending id, each followed by a line feed.
 	//
 	// Example: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 	Hash string `json:"hash"`
@@ -1356,7 +1356,7 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
-// ProjectionDigest Digest of this service's projection of one outlet business day, to compare with a device's local state (ADR-0014 test T9). x-provisional: the canonical-row rule belongs to go-common/sync.
+// ProjectionDigest Digest of this service's projection of one outlet business day, to compare with a device's local state (ADR-0014 tests T2, T9, T11). Algorithm sha256-canon-v1 (sync/protocol-v1.md, Projection digest): the rows of the entities this service owns that belong to the business day (a business_date equal to it, or a parent that has one), tombstoned rows left out. A row is the canonical JSON (RFC 8785, integers only) of an object holding id and every schema field the row has set, without pii fields and without absent fields. An entity digest is the lower-case hex SHA-256 over the row texts in ascending id order, each followed by a line feed; state_hash is the SHA-256 over the line '<entity>, line feed, row_count, line feed, hash, line feed' for each listed entity in ascending name order. Only entities with at least one row are listed. examples/digests holds the rows of the example world and CI recomputes the example from them.
 type ProjectionDigest struct {
 	// Algorithm Digest algorithm id.
 	//
@@ -1381,7 +1381,7 @@ type ProjectionDigest struct {
 	// Example: 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b
 	OutletId Id `json:"outlet_id"`
 
-	// StateHash SHA-256 over the entity digests in entity-name order.
+	// StateHash Lower-case hex SHA-256 over the entity digests in ascending entity-name order (see the schema description).
 	//
 	// Example: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
 	StateHash string `json:"state_hash"`
