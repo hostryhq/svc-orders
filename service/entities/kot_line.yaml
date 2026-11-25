@@ -1,0 +1,59 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/kot_line.yaml; DO NOT EDIT.
+entity: kot_line
+entity_v: 1
+owner: orders
+stream: outlet
+day_parent: kot_id
+policy: rank
+id:
+  rule: client_uuidv7
+description: A line on a ticket with its forward-only kitchen status. A KDS shows these from its local store.
+fields:
+  kot_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: kot
+    description: Ticket.
+  order_line_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: order_line
+    description: Order line.
+  name:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 80
+    description: Name in the station language.
+  qty_milli:
+    type: qty_milli
+    required: true
+    policy: immutable
+    minimum: 1
+    description: Quantity.
+  note:
+    type: string
+    required: false
+    policy: immutable
+    max_length: 100
+    description: Note.
+  status:
+    type: enum
+    values:
+    - new
+    - preparing
+    - ready
+    - served
+    required: true
+    policy: rank
+    order:
+    - new
+    - preparing
+    - ready
+    - served
+    description: new, preparing, ready, served; forward only.
+written_by_intents:
+- kot.send
+- kds.status

@@ -1,0 +1,45 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/order.yaml; DO NOT EDIT.
+entity: order
+entity_v: 1
+owner: orders
+stream: outlet
+policy: append
+id:
+  rule: client_uuidv7
+description: 'One order: what a table or counter customer asked for in one ordering session.'
+fields:
+  seating_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: seating
+    description: Seating; absent for counter and takeaway.
+  order_type:
+    type: enum
+    values:
+    - dine_in
+    - takeaway
+    - counter
+    required: true
+    policy: immutable
+    description: Type.
+  token_no:
+    type: int
+    required: false
+    policy: immutable
+    minimum: 1
+    description: Display token number; not a legal number, may skip.
+  business_date:
+    type: date
+    required: true
+    policy: immutable
+    description: Business date.
+  source:
+    type: enum
+    values:
+    - pos
+    required: true
+    policy: immutable
+    description: Where the order came from; only pos in Phase 2.
+written_by_intents:
+- order.create

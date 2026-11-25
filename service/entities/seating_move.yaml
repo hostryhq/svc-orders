@@ -1,0 +1,31 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/seating_move.yaml; DO NOT EDIT.
+entity: seating_move
+entity_v: 1
+owner: orders
+stream: outlet
+outside_digest: true
+policy: append
+id:
+  rule: client_uuidv7
+description: The whole seating moved to a free table (the kitchen is notified).
+fields:
+  seating_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: seating
+    description: Seating.
+  from_table_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: dining_table
+    description: Old table.
+  to_table_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: dining_table
+    description: New table.
+written_by_intents:
+- order.table.move

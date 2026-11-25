@@ -1,0 +1,181 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/order_line.yaml; DO NOT EDIT.
+entity: order_line
+entity_v: 1
+owner: orders
+stream: outlet
+day_parent: order_id
+policy: mixed
+id:
+  rule: client_uuidv7
+description: One line of an order. A snapshot of what was ordered (RM-M6). Quantity is a delta counter so adding
+  the same item to a draft line and splitting a line converge; the placement on a check is a single value, highest
+  stamp wins, and a conflicting move with a finalisation is a detector.
+fields:
+  order_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: order
+    description: Order.
+  check_id:
+    type: id
+    required: true
+    policy: lww
+    group: placement
+    ref: check
+    description: The check the line is billed on (placement).
+  item_id:
+    type: id
+    required: true
+    policy: immutable
+    description: Item.
+  variant_id:
+    type: id
+    required: false
+    policy: immutable
+    description: Variant.
+  variant_name:
+    type: string
+    required: false
+    policy: immutable
+    max_length: 40
+    description: Variant name snapshot, for example Full; absent when the line has no variant. `name` is the item name alone; a display joins them as "name (variant_name)".
+  name:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 80
+    description: Item name snapshot, English, without the variant.
+  kitchen_name:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 20
+    description: Kitchen short name snapshot.
+  category_id:
+    type: id
+    required: false
+    policy: immutable
+    description: Category snapshot id.
+  category_name:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 60
+    description: Category name snapshot.
+  qty_milli:
+    type: qty_milli
+    required: true
+    policy: delta
+    minimum: 0
+    description: Quantity in thousandths; value is the sum of deltas.
+  unit_price_paise:
+    type: paise
+    required: true
+    policy: immutable
+    minimum: 0
+    description: Unit price snapshot in paise.
+  modifier_delta_paise:
+    type: paise
+    required: true
+    policy: immutable
+    description: Sum of modifier deltas per unit.
+  modifiers_text:
+    type: string
+    required: false
+    policy: immutable
+    max_length: 200
+    description: Modifier names, comma separated.
+  note:
+    type: string
+    required: false
+    policy: immutable
+    max_length: 100
+    description: Free-text note, up to 100 characters.
+  seat_no:
+    type: int
+    required: false
+    policy: lww
+    group: placement
+    minimum: 1
+    description: Seat tag, 1 to the table's seats.
+  tax_class:
+    type: string
+    required: true
+    policy: immutable
+    description: Tax class snapshot.
+  hsn_sac:
+    type: string
+    required: false
+    policy: immutable
+    max_length: 8
+    description: HSN or SAC snapshot.
+  station_code:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 20
+    description: Station code resolved at add time.
+  state:
+    type: enum
+    values:
+    - draft
+    - sent
+    required: true
+    policy: rank
+    order:
+    - draft
+    - sent
+    description: draft then sent; forward-only.
+  split_from_line_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: order_line
+    description: Line this was split from (history kept).
+  discount_kind:
+    type: enum
+    values:
+    - percent
+    - amount
+    required: false
+    policy: lww_review
+    group: pricing
+    description: Line discount kind.
+  discount_value:
+    type: int
+    required: false
+    policy: lww_review
+    group: pricing
+    minimum: 0
+    description: Basis points for percent (1..10000) or paise for amount.
+  discount_reason_code_id:
+    type: id
+    required: false
+    policy: lww_review
+    group: pricing
+    description: Reason for the discount.
+  comp:
+    type: bool
+    required: false
+    policy: lww_review
+    group: pricing
+    description: 'Complimentary line: printed at zero, list value kept, no tax.'
+  comp_reason_code_id:
+    type: id
+    required: false
+    policy: lww_review
+    group: pricing
+    description: Reason for the comp.
+detectors:
+- order line on two bills (also billing)
+- 'orphan line: line placed on a check already billed'
+written_by_intents:
+- order.line.add
+- order.line.edit
+- order.items.move
+- bill.split
+- bill.merge
+- kot.send
+- bill.line.comp
+- bill.discount.apply

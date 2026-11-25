@@ -1,0 +1,57 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/station.yaml; DO NOT EDIT.
+entity: station
+entity_v: 1
+owner: catalog
+stream: outlet
+policy: lww
+tombstone: true
+id:
+  rule: client_uuidv7
+description: A kitchen or bar station.
+fields:
+  code:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 20
+    description: Short code, unique per outlet (DEFAULT is seeded).
+  name:
+    type: string
+    required: true
+    policy: lww
+    max_length: 30
+    description: Name.
+  output:
+    type: enum
+    values:
+    - printer
+    - kds
+    - both
+    required: true
+    policy: lww
+    description: Where tickets go.
+  printer_id:
+    type: id
+    required: false
+    policy: lww
+    ref: printer
+    description: Printer.
+  language:
+    type: enum
+    values:
+    - en
+    - ta
+    - ml
+    required: true
+    policy: lww
+    description: Language of printed tickets.
+  cashier_copy:
+    type: bool
+    required: false
+    policy: lww
+    description: Print a COPY on the counter printer (Should).
+replicated_to:
+- service: orders
+  purpose: Routes a ticket to a station and prints its name (station_id, station display).
+written_by_intents:
+- settings.outlet.edit

@@ -1,0 +1,43 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/check_cancel.yaml; DO NOT EDIT.
+entity: check_cancel
+entity_v: 1
+owner: orders
+stream: outlet
+day_parent: check_id
+policy: append
+id:
+  rule: client_uuidv7
+description: A whole check cancelled before numbering (no number was allocated, so the series has no gap). Also
+  records a merge (reason kind merged).
+fields:
+  check_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: check
+    description: Check.
+  reason_code_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: reason_code
+    description: Reason.
+  merged_into_check_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: check
+    description: Set when the check was merged into another.
+  approval_id:
+    type: id
+    required: false
+    policy: immutable
+    description: Approval, when lines were sent.
+  presented:
+    type: bool
+    required: true
+    policy: immutable
+    description: The check had been presented.
+written_by_intents:
+- bill.cancel
+- bill.merge

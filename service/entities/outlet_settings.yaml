@@ -1,0 +1,78 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/outlet_settings.yaml; DO NOT EDIT.
+entity: outlet_settings
+entity_v: 1
+owner: catalog
+stream: outlet
+policy: lww
+tombstone: true
+id:
+  rule: uuidv5
+  name: outlet_settings|{outlet_id}
+description: 'Non-money outlet settings of the restaurant app. x-provisional: not named in ADR-0014 R3; added so
+  each setting has one owner.'
+fields:
+  cancel_grace_seconds:
+    type: int
+    required: true
+    policy: lww
+    minimum: 0
+    description: Grace window for cancels while the kitchen status is new (default 120).
+  kot_stale_after_seconds:
+    type: int
+    required: true
+    policy: lww
+    minimum: 60
+    description: A KOT older than this on first arrival is listed as a late ticket (default 900).
+  send_timeout_seconds:
+    type: int
+    required: true
+    policy: lww
+    minimum: 1
+    description: Seconds before "Not delivered to the kitchen" shows (default 3).
+  kot_fallback_print:
+    type: enum
+    values:
+    - auto
+    - ask
+    required: true
+    policy: lww
+    description: auto or ask.
+  covers_required:
+    type: bool
+    required: true
+    policy: lww
+    description: Require covers when opening a table (default off).
+  idle_lock_seconds:
+    type: int
+    required: true
+    policy: lww
+    minimum: 30
+    description: Idle lock (default 300).
+  soldout_resets_daily:
+    type: bool
+    required: true
+    policy: lww
+    description: Reset sold-out flags at day start (default on).
+  served_default_counter:
+    type: bool
+    required: true
+    policy: lww
+    description: Counter orders default to Already served, bill only.
+  kds_amber_minutes:
+    type: int
+    required: true
+    policy: lww
+    minimum: 1
+    description: Ticket age turning amber (default 10).
+  kds_red_minutes:
+    type: int
+    required: true
+    policy: lww
+    minimum: 1
+    description: Ticket age turning red (default 20).
+replicated_to:
+- service: orders
+  purpose: The stale-ticket window and other non-money outlet settings that orders detectors read.
+written_by_intents:
+- settings.outlet.edit
+x-provisional: New entity; confirm in ADR-0014 R3 on acceptance.

@@ -1,0 +1,36 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/kot_print.yaml; DO NOT EDIT.
+entity: kot_print
+entity_v: 1
+owner: orders
+stream: outlet
+day_parent: kot_id
+policy: append
+id:
+  rule: client_uuidv7
+description: Acknowledgement that a KOT was printed, so the ordering device can show "printed in kitchen".
+fields:
+  kot_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: kot
+    description: Ticket.
+  printer_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: printer
+    description: Printer.
+  copy_no:
+    type: int
+    required: true
+    policy: immutable
+    minimum: 1
+    description: Copy number.
+  fallback:
+    type: bool
+    required: true
+    policy: immutable
+    description: Printed as a fallback by the ordering device.
+written_by_intents:
+- kot.print.ack

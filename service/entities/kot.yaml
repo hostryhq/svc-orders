@@ -1,0 +1,82 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/kot.yaml; DO NOT EDIT.
+entity: kot
+entity_v: 1
+owner: orders
+stream: outlet
+policy: append
+id:
+  rule: client_uuidv7
+description: One kitchen ticket per station per send. KOT numbers are display numbers with a per-device prefix;
+  gaps do not matter. A recall appends a new ticket referencing the old one.
+fields:
+  check_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: check
+    description: Check.
+  order_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: order
+    description: Order.
+  station_code:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 20
+    description: Station code.
+  kot_no:
+    type: string
+    required: true
+    policy: immutable
+    max_length: 12
+    description: Display number, device prefix plus per-business-date counter.
+  kind:
+    type: enum
+    values:
+    - original
+    - cancel
+    - moved
+    - recall
+    required: true
+    policy: immutable
+    description: original, cancel, moved or recall.
+  recall_of_kot_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: kot
+    description: Ticket recalled.
+  order_type:
+    type: enum
+    values:
+    - dine_in
+    - takeaway
+    - counter
+    required: true
+    policy: immutable
+    description: Type.
+  table_name:
+    type: string
+    required: false
+    policy: immutable
+    max_length: 8
+    description: Table name snapshot.
+  token_no:
+    type: int
+    required: false
+    policy: immutable
+    minimum: 1
+    description: Token snapshot.
+  business_date:
+    type: date
+    required: true
+    policy: immutable
+    description: Business date.
+written_by_intents:
+- kot.send
+- order.line.cancel
+- order.items.move
+- kds.recall

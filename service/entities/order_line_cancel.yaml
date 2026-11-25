@@ -1,0 +1,71 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/order_line_cancel.yaml; DO NOT EDIT.
+entity: order_line_cancel
+entity_v: 1
+owner: orders
+stream: outlet
+day_parent: order_line_id
+policy: append
+id:
+  rule: client_uuidv7
+description: A void (never sent), a cancel (sent) or a grace cancel. A cancellation is a new row, never a deletion.
+fields:
+  order_line_id:
+    type: id
+    required: true
+    policy: immutable
+    ref: order_line
+    description: Line.
+  kind:
+    type: enum
+    values:
+    - void
+    - cancel
+    - grace_cancel
+    required: true
+    policy: immutable
+    description: void, cancel or grace_cancel.
+  qty_milli:
+    type: qty_milli
+    required: true
+    policy: immutable
+    minimum: 1
+    description: Quantity cancelled.
+  reason_code_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: reason_code
+    description: Reason; required for cancel and grace_cancel.
+  approval_id:
+    type: id
+    required: false
+    policy: immutable
+    description: Manager approval, when one was needed.
+  kitchen_status_at_cancel:
+    type: enum
+    values:
+    - new
+    - preparing
+    - ready
+    - served
+    required: false
+    policy: immutable
+    description: Kitchen status the device saw.
+  wastage:
+    type: bool
+    required: true
+    policy: immutable
+    description: Kitchen had started (preparing or ready).
+  kot_id:
+    type: id
+    required: false
+    policy: immutable
+    ref: kot
+    description: KOT the line was on.
+detectors:
+- grace cancel of a line the kitchen had started
+- grace cancels over the allowance across devices
+written_by_intents:
+- order.line.void
+- order.line.cancel
+- order.line.cancel.grace

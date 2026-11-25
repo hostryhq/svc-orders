@@ -1,0 +1,41 @@
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/dining_table.yaml; DO NOT EDIT.
+entity: dining_table
+entity_v: 1
+owner: catalog
+stream: outlet
+policy: lww
+tombstone: true
+id:
+  rule: client_uuidv7
+description: A table. Status is derived from open seatings, never stored. A table with an open seating cannot be
+  deactivated (UI rule plus detector).
+fields:
+  floor_id:
+    type: id
+    required: true
+    policy: lww
+    ref: floor
+    description: Floor.
+  name:
+    type: string
+    required: true
+    policy: lww
+    max_length: 8
+    description: Name, at most 8 characters.
+  seats:
+    type: int
+    required: true
+    policy: lww
+    minimum: 1
+    maximum: 50
+    description: Seats, 1 to 50.
+  active:
+    type: bool
+    required: true
+    policy: lww
+    description: Active.
+replicated_to:
+- service: orders
+  purpose: Shows the table name on checks and tickets (table_name display join).
+written_by_intents:
+- floor.manage
