@@ -1,4 +1,4 @@
-# Copied by cmd/gen from api-specs 690d4d3466855ad1d17893f3847bd8780e4c57ea entities/restaurant/check.yaml; DO NOT EDIT.
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/check.yaml; DO NOT EDIT.
 entity: check
 entity_v: 1
 owner: orders
@@ -118,8 +118,9 @@ fields:
     required: false
     policy: lww_review
     group: customer
+    pii: true
     max_length: 15
-    description: Guest GSTIN, validated.
+    description: 'Guest GSTIN, validated. Personal data: travels in the pii object of the op, is served to same-outlet pos, waiter, personal and hub devices and never to a kds (ADR-0014 A3.1), and is erased by sync.pii.erase.'
   eco_channel:
     type: enum
     values:

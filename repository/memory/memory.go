@@ -20,6 +20,7 @@ type state struct {
 	voids      map[gosync.OpRef]bool
 	pii        map[gosync.RowKey]map[gosync.OpRef]gosync.PIIWrite // erasable side table, never a projection row
 	erased     map[gosync.OpRef]bool
+	piiw       map[repository.RowKey]map[string][]repository.PIIWrite // commitment ledger
 	rows       map[repository.RowKey]repository.Row
 	exceptions map[string]repository.Exception
 }
@@ -32,6 +33,7 @@ type candID struct {
 func newState() *state {
 	return &state{applied: map[string]repository.OpMeta{}, cands: map[gosync.RowKey]map[candID]gosync.Candidate{}, voids: map[gosync.OpRef]bool{},
 		pii: map[gosync.RowKey]map[gosync.OpRef]gosync.PIIWrite{}, erased: map[gosync.OpRef]bool{},
+		piiw: map[repository.RowKey]map[string][]repository.PIIWrite{},
 		rows: map[repository.RowKey]repository.Row{}, exceptions: map[string]repository.Exception{}}
 }
 
@@ -53,6 +55,13 @@ func (s *state) clone() *state {
 			cp[r] = w
 		}
 		c.pii[k] = cp
+	}
+	for k, m := range s.piiw {
+		cp := make(map[string][]repository.PIIWrite, len(m))
+		for f, ws := range m {
+			cp[f] = append([]repository.PIIWrite(nil), ws...)
+		}
+		c.piiw[k] = cp
 	}
 	for k, m := range s.cands {
 		cp := make(map[candID]gosync.Candidate, len(m))
@@ -155,6 +164,33 @@ func (t *tx) OpMetas(refs []string) (map[string]repository.OpMeta, error) {
 		if m, ok := t.st.applied[r]; ok {
 			out[r] = m
 		}
+	}
+	return out, nil
+}
+
+// AddPIIWrites implements repository.Tx.
+func (t *tx) AddPIIWrites(entity, id string, ws map[string]repository.PIIWrite) error {
+	k := repository.RowKey{Entity: entity, ID: id}
+	if t.st.piiw[k] == nil {
+		t.st.piiw[k] = map[string][]repository.PIIWrite{}
+	}
+	for f, w := range ws {
+		dup := false
+		for _, o := range t.st.piiw[k][f] {
+			dup = dup || o.Ref == w.Ref
+		}
+		if !dup {
+			t.st.piiw[k][f] = append(t.st.piiw[k][f], w)
+		}
+	}
+	return nil
+}
+
+// PIIWrites implements repository.Tx.
+func (t *tx) PIIWrites(entity, id string) (map[string][]repository.PIIWrite, error) {
+	out := map[string][]repository.PIIWrite{}
+	for f, ws := range t.st.piiw[repository.RowKey{Entity: entity, ID: id}] {
+		out[f] = append([]repository.PIIWrite(nil), ws...)
 	}
 	return out, nil
 }

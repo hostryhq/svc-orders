@@ -524,15 +524,37 @@ func followsDay(reg *gosync.Registry, all map[string]map[string]repository.Row, 
 	return false
 }
 
-// digestRow is the canonical row text: the JCS of id and the schema fields the row has set, without
-// pii fields and null values.
+// digestRow is the canonical row text: the JCS of id, the schema fields the row has set (without pii fields and null values)
+// and, for each pii field the row holds a commitment for, the member "~c:<field>" with that commitment (ADR-0014 A3.2). A pii
+// value is never part of it, so erasing one does not change the text.
 func digestRow(ent *gosync.Entity, id string, r repository.Row) ([]byte, error) {
-	m := map[string]any{"id": id}
+	known, pii := map[string]any{}, map[string]bool{}
 	for n, v := range r.Fields {
-		if f := ent.Fields[n]; f == nil || f.PII || v == nil {
+		if f := ent.Fields[n]; f != nil {
+			known[n], pii[n] = v, f.PII
+		}
+	}
+	for n := range r.Meta.PIIC {
+		if f := ent.Fields[n]; f != nil {
+			pii[n] = f.PII
+		}
+	}
+	return digestText(id, known, pii, r.Meta.PIIC)
+}
+
+// digestText builds the row text from the row's fields, the set of pii fields and the commitments held.
+func digestText(id string, fields map[string]any, pii map[string]bool, commits map[string]string) ([]byte, error) {
+	m := map[string]any{"id": id}
+	for n, v := range fields {
+		if pii[n] || v == nil {
 			continue
 		}
 		m[n] = v
+	}
+	for n, c := range commits {
+		if pii[n] && c != "" {
+			m["~c:"+n] = c
+		}
 	}
 	raw, err := json.Marshal(m)
 	if err != nil {

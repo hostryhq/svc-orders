@@ -164,13 +164,19 @@ func digestDayOps() []*Op {
 			"category_name": "Starters", "qty_milli": qty, "unit_price_paise": int64(24000), "modifier_delta_paise": int64(2000), "tax_class": "fnb_standard",
 			"station_code": StationCode, "state": "sent"})
 	}
-	return []*Op{
+	ops := []*Op{
 		b.Next("order.create", Ins("order", Order, map[string]any{"order_type": "dine_in", "business_date": Day, "source": "pos"})),
 		b.Next("check.create", Ins("check", Check, map[string]any{"seating_id": Seating, "order_type": "dine_in", "label": "Guest 2", "business_date": Day, "status": "open"})),
 		b.Next("order.line.add", line(Line, 2000), line(LineGone, 1000)),
 		b.Next("kot.send", Ins("kot", Kot, map[string]any{"check_id": Check, "order_id": Order, "station_code": StationCode, "kot_no": "P1-0007", "kind": "original",
 			"order_type": "dine_in", "business_date": Day})),
 	}
+	// The check's customer name and phone are pii: a node holds their commitments only (examples/digests/orders-digest-day.json,
+	// "commitments") and the digest covers those.
+	ops[1].PIICommits = gosync.PIIC{"check": {Check: {
+		"customer_name":  "fb926b59239c6d646b19799ab4f0c2196c3b9544e1901c9f6873017c570d2766",
+		"customer_phone": "2fc77fdc9cd5852397cd7e2dff88dd1387bc4b73a173e5ea5e575e3aa9fb0335"}}}
+	return ops
 }
 
 // KitchenLines is the number of ticket lines that reached ready in the kitchen-times-day world.

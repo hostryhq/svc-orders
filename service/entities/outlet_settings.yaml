@@ -1,4 +1,4 @@
-# Copied by cmd/gen from api-specs 690d4d3466855ad1d17893f3847bd8780e4c57ea entities/restaurant/outlet_settings.yaml; DO NOT EDIT.
+# Copied by cmd/gen from api-specs 14c76fdb9ac1a5e70d451a9ea466e6dbb6630292 entities/restaurant/outlet_settings.yaml; DO NOT EDIT.
 entity: outlet_settings
 entity_v: 1
 owner: catalog

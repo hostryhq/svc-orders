@@ -15,6 +15,7 @@ gen:
 	@test -f $(API_SPECS)/build/orders.yaml || (echo "run 'make bundle' in $(API_SPECS) first" && exit 1)
 	$(OAPI_CODEGEN) -config oapi-codegen.yaml $(API_SPECS)/build/orders.yaml
 	go run ./cmd/gen -specs $(API_SPECS) -commit "$$(git -C $(API_SPECS) rev-parse HEAD)"
+	python3 -I -c "import json,sys; json.dump(json.load(open(sys.argv[1]))[\"digest_row\"], open(sys.argv[2],\"w\"), indent=1, sort_keys=True)" $(API_SPECS)/sync/conformance/v1.json service/testdata/digest-row.vectors.v1.json
 	git -C $(API_SPECS) rev-parse HEAD > GEN_SOURCE
 	@echo "generated from api-specs $$(cat GEN_SOURCE) with oapi-codegen $(OAPI_CODEGEN_VERSION)"
 

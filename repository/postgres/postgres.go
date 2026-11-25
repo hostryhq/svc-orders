@@ -206,6 +206,36 @@ func (t *tx) OpMetas(refs []string) (map[string]repository.OpMeta, error) {
 	return out, rows.Err()
 }
 
+// AddPIIWrites implements repository.Tx.
+func (t *tx) AddPIIWrites(entity, id string, ws map[string]repository.PIIWrite) error {
+	for f, w := range ws {
+		if _, err := t.sql.ExecContext(t.ctx, `INSERT INTO pii_commitments (tenant_id, entity, row_id, field, op_ref, hlc, origin, seq, is_insert, commitment)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`, t.tenant, entity, id, f, w.Ref, w.HLC, w.Origin, w.Seq, w.Insert, w.Commit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PIIWrites implements repository.Tx.
+func (t *tx) PIIWrites(entity, id string) (map[string][]repository.PIIWrite, error) {
+	rows, err := t.sql.QueryContext(t.ctx, `SELECT field, op_ref, hlc, origin, seq, is_insert, commitment FROM pii_commitments WHERE tenant_id=$1 AND entity=$2 AND row_id=$3 ORDER BY field, op_ref`, t.tenant, entity, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]repository.PIIWrite{}
+	for rows.Next() {
+		var f string
+		var w repository.PIIWrite
+		if err := rows.Scan(&f, &w.Ref, &w.HLC, &w.Origin, &w.Seq, &w.Insert, &w.Commit); err != nil {
+			return nil, err
+		}
+		out[f] = append(out[f], w)
+	}
+	return out, rows.Err()
+}
+
 // SyncStore implements repository.Tx: the engine's candidates and voids in this transaction.
 func (t *tx) SyncStore() gosync.Store { return gosync.PGStore{DB: t.sql} }
 

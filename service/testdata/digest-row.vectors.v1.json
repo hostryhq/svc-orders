@@ -1,0 +1,70 @@
+[
+ {
+  "case": "a bill with one committed pii field; the value, wherever held, never enters the text",
+  "commitments": {
+   "customer_name": "fb926b59239c6d646b19799ab4f0c2196c3b9544e1901c9f6873017c570d2766"
+  },
+  "entity": "bill",
+  "entity_hash": "1a6bb328e57e6e2359656bf238ca2a6ff3e1fa82afe443192861077a18f65782",
+  "fields": {
+   "business_date": "2026-11-24",
+   "number": "A7K/2627/000001",
+   "total_paise": 50400
+  },
+  "id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7001",
+  "pii_fields": [
+   "customer_name",
+   "customer_gstin"
+  ],
+  "pii_values": {
+   "customer_name": "Meera"
+  },
+  "row_text": "{\"business_date\":\"2026-11-24\",\"id\":\"0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7001\",\"number\":\"A7K/2627/000001\",\"total_paise\":50400,\"~c:customer_name\":\"fb926b59239c6d646b19799ab4f0c2196c3b9544e1901c9f6873017c570d2766\"}"
+ },
+ {
+  "case": "a check with two committed fields; equal on a pos with both values, a kds with none and a node where one was erased",
+  "commitments": {
+   "customer_name": "fb926b59239c6d646b19799ab4f0c2196c3b9544e1901c9f6873017c570d2766",
+   "customer_phone": "2fc77fdc9cd5852397cd7e2dff88dd1387bc4b73a173e5ea5e575e3aa9fb0335"
+  },
+  "entity": "check",
+  "entity_hash": "f15366807ac8972c065773981976da32b7f33c88b36f89eeb571b8c74f1e3b62",
+  "fields": {
+   "label": "Guest 2",
+   "status": "open"
+  },
+  "id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f6001",
+  "pii_fields": [
+   "customer_name",
+   "customer_phone",
+   "customer_gstin"
+  ],
+  "pii_values": {
+   "customer_name": "Meera",
+   "customer_phone": "+919876543210"
+  },
+  "row_text": "{\"id\":\"0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f6001\",\"label\":\"Guest 2\",\"status\":\"open\",\"~c:customer_name\":\"fb926b59239c6d646b19799ab4f0c2196c3b9544e1901c9f6873017c570d2766\",\"~c:customer_phone\":\"2fc77fdc9cd5852397cd7e2dff88dd1387bc4b73a173e5ea5e575e3aa9fb0335\"}"
+ },
+ {
+  "case": "the same check where the phone field was never set: no member for it, so a different text and hash",
+  "commitments": {
+   "customer_name": "fb926b59239c6d646b19799ab4f0c2196c3b9544e1901c9f6873017c570d2766"
+  },
+  "entity": "check",
+  "entity_hash": "2f9493248d0a38d4cd6dc8efee4a1d41b365e7bcf8feef150ed2ed7771b2ca5b",
+  "fields": {
+   "label": "Guest 2",
+   "status": "open"
+  },
+  "id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f6001",
+  "pii_fields": [
+   "customer_name",
+   "customer_phone",
+   "customer_gstin"
+  ],
+  "pii_values": {
+   "customer_name": "Meera"
+  },
+  "row_text": "{\"id\":\"0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f6001\",\"label\":\"Guest 2\",\"status\":\"open\",\"~c:customer_name\":\"fb926b59239c6d646b19799ab4f0c2196c3b9544e1901c9f6873017c570d2766\"}"
+ }
+]

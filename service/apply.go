@@ -56,8 +56,9 @@ func (s *Service) Apply(tx repository.Tx, op *Op, arrived time.Time) error {
 		return err
 	}
 	touched := map[repository.RowKey]bool{}
+	writes := piiWrites(op)
 	for _, row := range res.Rows {
-		if err := s.rederive(tx, row, outlet); err != nil {
+		if err := s.rederive(tx, row, outlet, writes[repository.RowKey{Entity: row.Key.Entity, ID: row.Key.ID}]); err != nil {
 			return err
 		}
 		touched[repository.RowKey{Entity: row.Key.Entity, ID: row.Key.ID}] = true
@@ -66,7 +67,12 @@ func (s *Service) Apply(tx repository.Tx, op *Op, arrived time.Time) error {
 }
 
 // rederive writes the resolved row with the meta derived from its live candidates.
-func (s *Service) rederive(tx repository.Tx, row gosync.Row, outlet string) error {
+func (s *Service) rederive(tx repository.Tx, row gosync.Row, outlet string, newPII map[string]repository.PIIWrite) error {
+	if len(newPII) > 0 { // a commitment may arrive before its row
+		if err := tx.AddPIIWrites(row.Key.Entity, row.Key.ID, newPII); err != nil {
+			return err
+		}
+	}
 	if !row.Exists {
 		return tx.DeleteRow(row.Key.Entity, row.Key.ID)
 	}
@@ -98,6 +104,9 @@ func (s *Service) rederive(tx repository.Tx, row gosync.Row, outlet string) erro
 	ent := mustRegistry().Entities[row.Key.Entity]
 	r := repository.Row{Entity: row.Key.Entity, ID: row.Key.ID, Fields: row.Fields, Gone: row.Deleted}
 	r.Meta = deriveMeta(ent, row, live, metas)
+	if err := s.derivePII(tx, ent, &r); err != nil {
+		return err
+	}
 	r.OutletID = outlet
 	for _, c := range live { // the outlet of the earliest insert
 		if c.Kind == gosync.KindInsert {
@@ -222,4 +231,85 @@ func indexIn(order []string, v string) int {
 		}
 	}
 	return -1
+}
+
+// piiWrites are the verified commitments the op carries, per owned row and pii field, with the stamp the field's write has
+// (the engine keeps no candidate for a pii field, so the winner is decided here). A row's pii is written by its insert or a
+// set mutation of the same op.
+func piiWrites(op *Op) map[repository.RowKey]map[string]repository.PIIWrite {
+	out := map[repository.RowKey]map[string]repository.PIIWrite{}
+	reg := mustRegistry()
+	for entity, rows := range op.PIICommits {
+		ent := reg.Entities[entity]
+		if ent == nil || reg.RoleOf(ServiceName, entity) != gosync.RoleOwner {
+			continue
+		}
+		for id, fields := range rows {
+			insert, set := false, false
+			for _, m := range op.Muts {
+				if m.E == entity && m.ID == id {
+					insert = insert || m.K == gosync.KindInsert
+					set = set || m.K == gosync.KindSet
+				}
+			}
+			for name, c := range fields {
+				f := ent.Fields[name]
+				if f == nil || !f.PII || c == "" || !(insert || set && f.Policy != gosync.PolicyImmutable) {
+					continue
+				}
+				k := repository.RowKey{Entity: entity, ID: id}
+				if out[k] == nil {
+					out[k] = map[string]repository.PIIWrite{}
+				}
+				out[k][name] = repository.PIIWrite{Ref: op.Ref.String(), HLC: op.HLC, Origin: op.Ref.Origin, Seq: op.Ref.Seq, Insert: insert, Commit: c}
+			}
+		}
+	}
+	return out
+}
+
+// derivePII picks the winner
+// of each pii field from every one recorded: the lowest-stamped insert for an immutable field, the highest-stamped write
+// otherwise, ignoring voided ops.
+func (s *Service) derivePII(tx repository.Tx, ent *gosync.Entity, r *repository.Row) error {
+	all, err := tx.PIIWrites(r.Entity, r.ID)
+	if err != nil || len(all) == 0 {
+		return err
+	}
+	refOf := func(w repository.PIIWrite) gosync.OpRef {
+		return gosync.OpRef{Origin: w.Origin, Stream: strings.SplitN(w.Ref, "|", 2)[0], Seq: w.Seq}
+	}
+	var refs []gosync.OpRef
+	for _, ws := range all {
+		for _, w := range ws {
+			refs = append(refs, refOf(w))
+		}
+	}
+	voided, err := tx.SyncStore().Voided(tx.Context(), tx.Tenant(), refs)
+	if err != nil {
+		return err
+	}
+	r.Meta.PIIC = map[string]string{}
+	for f, ws := range all {
+		imm := ent.Fields[f] != nil && ent.Fields[f].Policy == gosync.PolicyImmutable
+		var win *repository.PIIWrite
+		for i := range ws {
+			w := &ws[i]
+			if voided[refOf(*w)] || (imm && !w.Insert) {
+				continue
+			}
+			if win == nil {
+				win = w
+				continue
+			}
+			cmp := (gosync.Stamp{HLC: w.HLC, Origin: w.Origin, Seq: w.Seq}).Compare(gosync.Stamp{HLC: win.HLC, Origin: win.Origin, Seq: win.Seq})
+			if (imm && cmp < 0) || (!imm && cmp > 0) {
+				win = w
+			}
+		}
+		if win != nil {
+			r.Meta.PIIC[f] = win.Commit
+		}
+	}
+	return nil
 }

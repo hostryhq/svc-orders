@@ -41,6 +41,20 @@ type Meta struct {
 	// (or a later one); RankStamp the earliest stamp.
 	RankAt    map[string]map[string]string `json:"rank_at,omitempty"`
 	RankStamp map[string]map[string]string `json:"rank_stamp,omitempty"`
+	// PIIC holds, per pii field, the commitment of the write that wins the field under its merge rule: what the projection
+	// digest covers in place of the value (ADR-0014 A3.2). Derived from the commitment ledger (Tx.PIIWrites).
+	PIIC map[string]string `json:"pii_c,omitempty"`
+}
+
+// PIIWrite is one commitment of a pii field, with the stamp of the write that carried it. Commitments survive erasure;
+// values are never held here.
+type PIIWrite struct {
+	Ref    string `json:"ref"` // OpRef.String()
+	HLC    string `json:"hlc"`
+	Origin string `json:"origin"`
+	Seq    int64  `json:"seq"`
+	Insert bool   `json:"insert,omitempty"`
+	Commit string `json:"commit"`
 }
 
 // Row is the derived current state of one synced row.
@@ -114,6 +128,11 @@ type Tx interface {
 
 	// SyncStore is the go-common/sync candidate and void store of this transaction (ADR-0014 A2.1).
 	SyncStore() gosync.Store
+
+	// AddPIIWrites records the commitments (by field) an op carried for a row, whether or not the row exists yet; adding the
+	// same op twice is a no-op. PIIWrites returns every commitment recorded for the row, by field.
+	AddPIIWrites(entity, id string, ws map[string]PIIWrite) error
+	PIIWrites(entity, id string) (map[string][]PIIWrite, error)
 
 	PutRow(r Row) error
 	DeleteRow(entity, id string) error
