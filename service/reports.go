@@ -4,10 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"sort"
-	"strings"
 
 	"github.com/hostryhq/go-common/money"
+	gosync "github.com/hostryhq/go-common/sync"
 	"github.com/hostryhq/go-common/tenancy"
 	"github.com/hostryhq/svc-orders/repository"
 )
@@ -247,12 +248,12 @@ func (s *Service) KitchenTimes(ctx context.Context, f ReportFilter) (KitchenTime
 			for _, l := range lines {
 				k := kotByID[l.Parent]
 				a := get(gk{stations[str(k.Fields["station_code"])], k.BusinessDate})
-				a.lines++
 				ready := l.Meta.RankAt["status"]["ready"]
 				if ready == "" {
 					ready = l.Meta.RankAt["status"]["served"]
 				}
 				if d, ok := secondsBetween(l.Meta.CreatedAt, ready); ok {
+					a.lines++ // line_count: ticket lines that reached ready
 					a.preps = append(a.preps, d)
 				}
 			}
@@ -395,9 +396,14 @@ func tableNames(tx repository.Tx, outlet string) (map[string]string, error) {
 	return out, nil
 }
 
-// ProjectionDigest hashes the owned rows of an outlet business day (ADR-0014 T9). A row belongs to the
-// date of itself or, through its parent chain, of its check, kot or seating. Rows whose parent has not
-// arrived yet belong to no date and are left out until it does.
+// digestParents are the parent references of the sha256-canon-v1 day rule, in the order the protocol
+// tries them (sync/protocol-v1.md, Projection digest): the first one an entity has names its parent.
+var digestParents = []struct{ field, entity string }{{"order_id", "order"}, {"check_id", "check"}, {"kot_id", "kot"}, {"bill_id", "bill"}, {"credit_note_id", "credit_note"}}
+
+// ProjectionDigest is the digest of the owned rows of an outlet business day, algorithm sha256-canon-v1
+// (sync/protocol-v1.md, ADR-0014 T9). A row belongs to the day when its business_date equals it or, for
+// an entity without one, when the parent it names through order_id, check_id or kot_id does. Tombstoned
+// rows are left out; a row whose parent has not arrived yet belongs to no day until it does.
 func (s *Service) ProjectionDigest(ctx context.Context, header, date string) (ProjectionDigest, error) {
 	tc, err := tenancy.Require(ctx)
 	if err != nil {
@@ -413,52 +419,82 @@ func (s *Service) ProjectionDigest(ctx context.Context, header, date string) (Pr
 		if err != nil {
 			return err
 		}
+		reg := mustRegistry()
 		all := map[string]map[string]repository.Row{}
 		for _, e := range ownedEntities() {
-			rows, err := tx.Rows(repository.RowQuery{Entity: e, Outlet: outlet, IncludeGone: true})
+			rows, err := tx.Rows(repository.RowQuery{Entity: e, Outlet: outlet})
 			if err != nil {
 				return err
 			}
 			all[e] = map[string]repository.Row{}
 			for _, r := range rows {
-				all[e][r.ID] = r
-			}
-		}
-		parentEntity := map[string]string{"order_line": "check", "kot": "check", "kot_line": "kot", "kot_print": "kot", "kot_handover": "kot", "order_line_cancel": "order_line",
-			"order_line_modifier": "order_line", "check_cancel": "check", "check_present": "check", "check_present_change": "check", "bill_request": "seating",
-			"seating_move": "seating", "seating_merge": "seating"}
-		var dateOf func(e string, r repository.Row, depth int) string
-		dateOf = func(e string, r repository.Row, depth int) string {
-			if r.BusinessDate != "" {
-				return r.BusinessDate
-			}
-			pe := parentEntity[e]
-			if pe == "" || depth > 4 {
-				return ""
-			}
-			p, ok := all[pe][r.Parent]
-			if !ok {
-				return ""
-			}
-			return dateOf(pe, p, depth+1)
-		}
-		out = ProjectionDigest{OutletID: outlet, BusinessDate: d, Algorithm: "sha256-canon-v1", ComputedAt: tsTime(s.Clock.Now()), Entities: []EntityDigest{}}
-		state := sha256.New()
-		for _, e := range ownedEntities() {
-			var lines []string
-			for id, r := range all[e] {
-				if dateOf(e, r, 0) == d {
-					lines = append(lines, e+"|"+id+"|"+canon(r.Fields))
+				if !r.Gone {
+					all[e][r.ID] = r
 				}
 			}
-			sort.Strings(lines)
-			sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
-			ed := EntityDigest{Entity: e, RowCount: len(lines), Hash: hex.EncodeToString(sum[:])}
+		}
+		belongs := func(e string, r repository.Row) bool {
+			ent := reg.Entities[e]
+			if _, ok := ent.Fields["business_date"]; ok {
+				return str(r.Fields["business_date"]) == d
+			}
+			for _, pr := range digestParents {
+				if _, ok := ent.Fields[pr.field]; !ok {
+					continue
+				}
+				p, ok := all[pr.entity][str(r.Fields[pr.field])]
+				return ok && str(p.Fields["business_date"]) == d
+			}
+			return false
+		}
+		out = ProjectionDigest{OutletID: outlet, BusinessDate: d, Algorithm: "sha256-canon-v1", ComputedAt: tsTime(s.Clock.Now()), Entities: []EntityDigest{}}
+		names := ownedEntities()
+		sort.Strings(names)
+		state := sha256.New()
+		for _, e := range names {
+			ent := reg.Entities[e]
+			ids := make([]string, 0, len(all[e]))
+			for id, r := range all[e] {
+				if belongs(e, r) {
+					ids = append(ids, id)
+				}
+			}
+			if len(ids) == 0 {
+				continue
+			}
+			sort.Strings(ids)
+			h := sha256.New()
+			for _, id := range ids {
+				text, err := digestRow(ent, id, all[e][id])
+				if err != nil {
+					return err
+				}
+				h.Write(text)
+				h.Write([]byte{'\n'})
+			}
+			ed := EntityDigest{Entity: e, RowCount: len(ids), Hash: hex.EncodeToString(h.Sum(nil))}
 			out.Entities = append(out.Entities, ed)
-			state.Write([]byte(ed.Entity + "|" + itoa(ed.RowCount) + "|" + ed.Hash + "\n"))
+			state.Write([]byte(ed.Entity + "\n" + itoa(ed.RowCount) + "\n" + ed.Hash + "\n"))
 		}
 		out.StateHash = hex.EncodeToString(state.Sum(nil))
 		return nil
 	})
 	return out, err
+}
+
+// digestRow is the canonical row text: the JCS of id and the schema fields the row has set, without
+// pii fields and null values.
+func digestRow(ent *gosync.Entity, id string, r repository.Row) ([]byte, error) {
+	m := map[string]any{"id": id}
+	for n, v := range r.Fields {
+		if f := ent.Fields[n]; f == nil || f.PII || v == nil {
+			continue
+		}
+		m[n] = v
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return gosync.Canonicalize(raw)
 }

@@ -205,7 +205,7 @@ func TestProjectionDigestIsStableAndSensitive(t *testing.T) {
 	for _, e := range d1.Entities {
 		counts[e.Entity] = e.RowCount
 	}
-	if counts["check"] != 1 || counts["order_line"] != 2 || counts["kot_line"] != 2 || counts["order_line_cancel"] != 1 {
+	if counts["check"] != 1 || counts["order_line"] != 2 || counts["kot_line"] != 2 || counts["order_line_cancel"] != 0 { // the cancel row has no kot_id, the only parent reference of its entity
 		t.Fatalf("row counts = %v", counts)
 	}
 	ops := double.NewOpBuilder("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7f00", "outlet:"+double.Outlet, double.Member).At(double.Start)
