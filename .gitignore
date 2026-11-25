@@ -34,3 +34,7 @@ coverage/
 target/
 src-tauri/target/
 src-tauri/gen/
+
+# local dev workspace (uncommitted)
+go.work
+go.work.sum
