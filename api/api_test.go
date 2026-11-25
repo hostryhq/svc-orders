@@ -195,6 +195,11 @@ func TestReportsOfTheBaseWorld(t *testing.T) {
 func TestProjectionDigestIsStableAndSensitive(t *testing.T) {
 	c := newClient(t, "base")
 	h := c.as(double.Tenant, []string{double.Outlet}, "report.view.outlet")
+	mb := double.NewOpBuilder("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7f01", "outlet:"+double.Outlet, double.Member).At(double.Start)
+	if err := c.d.Ingest(context.Background(), double.Tenant, mb.Next("order.line.add", double.Ins("order_line_modifier", "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7f11",
+		map[string]any{"order_line_id": double.Line, "modifier_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7f12", "name": "Extra spicy", "price_delta_paise": int64(1000)}))); err != nil {
+		t.Fatal(err)
+	}
 	_, b1 := c.get("/v1/projection-digests?business_date=2026-11-24", h)
 	_, b2 := c.get("/v1/projection-digests?business_date=2026-11-24", h)
 	d1, d2 := decode[service.ProjectionDigest](t, b1), decode[service.ProjectionDigest](t, b2)
@@ -205,7 +210,7 @@ func TestProjectionDigestIsStableAndSensitive(t *testing.T) {
 	for _, e := range d1.Entities {
 		counts[e.Entity] = e.RowCount
 	}
-	if counts["check"] != 1 || counts["order_line"] != 2 || counts["kot_line"] != 2 || counts["order_line_cancel"] != 0 { // the cancel row has no kot_id, the only parent reference of its entity
+	if counts["check"] != 1 || counts["order_line"] != 2 || counts["kot_line"] != 2 || counts["order_line_cancel"] != 1 || counts["order_line_modifier"] != 1 { // cancel and modifier follow day_parent order_line_id -> order (ADR-0005 A3.5)
 		t.Fatalf("row counts = %v", counts)
 	}
 	ops := double.NewOpBuilder("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f7f00", "outlet:"+double.Outlet, double.Member).At(double.Start)

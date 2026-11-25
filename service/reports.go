@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"sort"
+	"sync"
 
 	"github.com/hostryhq/go-common/money"
 	gosync "github.com/hostryhq/go-common/sync"
 	"github.com/hostryhq/go-common/tenancy"
 	"github.com/hostryhq/svc-orders/repository"
+	"gopkg.in/yaml.v3"
 )
 
 // ReportFilter is the common filter of the report operations.
@@ -396,13 +398,38 @@ func tableNames(tx repository.Tx, outlet string) (map[string]string, error) {
 	return out, nil
 }
 
-// digestParents are the parent references of the sha256-canon-v1 day rule, in the order the protocol
-// tries them (sync/protocol-v1.md, Projection digest): the first one an entity has names its parent.
-var digestParents = []struct{ field, entity string }{{"order_id", "order"}, {"check_id", "check"}, {"kot_id", "kot"}, {"bill_id", "bill"}, {"credit_note_id", "credit_note"}}
+// dayRules are the day rules of the entity files (sync/protocol-v1.md, Projection digest): the
+// day_parent field of an entity without business_date, which names the parent whose day it follows.
+// The registry does not carry the key, so it is read from the embedded entity files.
+var (
+	dayRulesOnce sync.Once
+	dayRules     map[string]string
+)
+
+func dayParents() map[string]string {
+	dayRulesOnce.Do(func() {
+		dayRules = map[string]string{}
+		files, _ := entityFS.ReadDir("entities")
+		for _, f := range files {
+			raw, err := entityFS.ReadFile("entities/" + f.Name())
+			if err != nil {
+				continue
+			}
+			var y struct {
+				Entity    string `yaml:"entity"`
+				DayParent string `yaml:"day_parent"`
+			}
+			if yaml.Unmarshal(raw, &y) == nil && y.DayParent != "" {
+				dayRules[y.Entity] = y.DayParent
+			}
+		}
+	})
+	return dayRules
+}
 
 // ProjectionDigest is the digest of the owned rows of an outlet business day, algorithm sha256-canon-v1
 // (sync/protocol-v1.md, ADR-0014 T9). A row belongs to the day when its business_date equals it or, for
-// an entity without one, when the parent it names through order_id, check_id or kot_id does. Tombstoned
+// an entity without one, when the parent its day_parent names (followed until a row with business_date) does. Tombstoned
 // rows are left out; a row whose parent has not arrived yet belongs to no day until it does.
 func (s *Service) ProjectionDigest(ctx context.Context, header, date string) (ProjectionDigest, error) {
 	tc, err := tenancy.Require(ctx)
@@ -438,14 +465,7 @@ func (s *Service) ProjectionDigest(ctx context.Context, header, date string) (Pr
 			if _, ok := ent.Fields["business_date"]; ok {
 				return str(r.Fields["business_date"]) == d
 			}
-			for _, pr := range digestParents {
-				if _, ok := ent.Fields[pr.field]; !ok {
-					continue
-				}
-				p, ok := all[pr.entity][str(r.Fields[pr.field])]
-				return ok && str(p.Fields["business_date"]) == d
-			}
-			return false
+			return followsDay(reg, all, e, r, d)
 		}
 		out = ProjectionDigest{OutletID: outlet, BusinessDate: d, Algorithm: "sha256-canon-v1", ComputedAt: tsTime(s.Clock.Now()), Entities: []EntityDigest{}}
 		names := ownedEntities()
@@ -480,6 +500,28 @@ func (s *Service) ProjectionDigest(ctx context.Context, header, date string) (Pr
 		return nil
 	})
 	return out, err
+}
+
+// followsDay follows day_parent from the row, entity by entity, until a row with business_date is
+// reached (line, then order, then date; ADR-0005 A3.5). A missing parent row, or an entity with no
+// day_parent, puts the row in no day. The chain is bounded, so a malformed cycle ends.
+func followsDay(reg *gosync.Registry, all map[string]map[string]repository.Row, e string, r repository.Row, d string) bool {
+	for hops := 0; hops < 8; hops++ {
+		field := dayParents()[e]
+		if field == "" {
+			return false
+		}
+		ref := reg.Entities[e].Fields[field].Ref
+		p, ok := all[ref][str(r.Fields[field])]
+		if !ok {
+			return false
+		}
+		if _, has := reg.Entities[ref].Fields["business_date"]; has {
+			return str(p.Fields["business_date"]) == d
+		}
+		e, r = ref, p
+	}
+	return false
 }
 
 // digestRow is the canonical row text: the JCS of id and the schema fields the row has set, without
