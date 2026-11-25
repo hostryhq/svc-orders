@@ -31,7 +31,7 @@ type DB struct {
 
 // Truncate empties every projection table (not the migrations).
 func (d *DB) Truncate(ctx context.Context) error {
-	_, err := d.Admin.ExecContext(ctx, `TRUNCATE apply_counter, applied_ops, voided_ops, effects, sync_candidates, sync_voids, sync_pii, projection_rows, exceptions, outbox, inbox, event_parked`)
+	_, err := d.Admin.ExecContext(ctx, `TRUNCATE apply_counter, applied_ops, voided_ops, effects, sync_candidates, sync_voids, sync_pii, sync_pii_erased, projection_rows, exceptions, outbox, inbox, event_parked`)
 	return err
 }
 

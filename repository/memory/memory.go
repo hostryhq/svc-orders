@@ -18,6 +18,8 @@ type state struct {
 	applied    map[string]repository.OpMeta
 	cands      map[gosync.RowKey]map[candID]gosync.Candidate
 	voids      map[gosync.OpRef]bool
+	pii        map[gosync.RowKey]map[gosync.OpRef]gosync.PIIWrite // erasable side table, never a projection row
+	erased     map[gosync.OpRef]bool
 	rows       map[repository.RowKey]repository.Row
 	exceptions map[string]repository.Exception
 }
@@ -29,6 +31,7 @@ type candID struct {
 
 func newState() *state {
 	return &state{applied: map[string]repository.OpMeta{}, cands: map[gosync.RowKey]map[candID]gosync.Candidate{}, voids: map[gosync.OpRef]bool{},
+		pii: map[gosync.RowKey]map[gosync.OpRef]gosync.PIIWrite{}, erased: map[gosync.OpRef]bool{},
 		rows: map[repository.RowKey]repository.Row{}, exceptions: map[string]repository.Exception{}}
 }
 
@@ -40,6 +43,16 @@ func (s *state) clone() *state {
 	}
 	for k, v := range s.voids {
 		c.voids[k] = v
+	}
+	for k, v := range s.erased {
+		c.erased[k] = v
+	}
+	for k, m := range s.pii {
+		cp := make(map[gosync.OpRef]gosync.PIIWrite, len(m))
+		for r, w := range m {
+			cp[r] = w
+		}
+		c.pii[k] = cp
 	}
 	for k, m := range s.cands {
 		cp := make(map[candID]gosync.Candidate, len(m))
@@ -75,6 +88,19 @@ func (s *Store) Events() []events.Envelope {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]events.Envelope(nil), s.events...)
+}
+
+// PII returns the side-table records of a row of a tenant, for tests.
+func (s *Store) PII(tenant string, k gosync.RowKey) []gosync.PIIWrite {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []gosync.PIIWrite
+	if st := s.tenants[tenant]; st != nil {
+		for _, w := range st.pii[k] {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // Reset drops all state of every tenant and the recorded events.
@@ -187,6 +213,39 @@ func (s syncStore) Voided(_ context.Context, _ string, refs []gosync.OpRef) (map
 		}
 	}
 	return out, nil
+}
+
+// PutPII implements gosync.Store: idempotent per (row, op), a no-op for an erased op.
+func (s syncStore) PutPII(_ context.Context, w gosync.PIIWrite) error {
+	if s.st.erased[w.Ref] {
+		return nil
+	}
+	if s.st.pii[w.Key] == nil {
+		s.st.pii[w.Key] = map[gosync.OpRef]gosync.PIIWrite{}
+	}
+	if _, ok := s.st.pii[w.Key][w.Ref]; !ok {
+		s.st.pii[w.Key][w.Ref] = w
+	}
+	return nil
+}
+
+// AddErasure implements gosync.Store: values and salts go, commitments stay.
+func (s syncStore) AddErasure(_ context.Context, _ string, r gosync.OpRef) (int64, error) {
+	s.st.erased[r] = true
+	var n int64
+	for _, m := range s.st.pii {
+		if w, ok := m[r]; ok && len(w.Fields) > 0 {
+			w.Fields, w.Salts = nil, nil
+			m[r] = w
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Erased implements gosync.Store.
+func (s syncStore) Erased(_ context.Context, _ string, r gosync.OpRef) (bool, error) {
+	return s.st.erased[r], nil
 }
 
 func (t *tx) PutRow(r repository.Row) error {
