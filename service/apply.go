@@ -63,6 +63,29 @@ func (s *Service) Apply(tx repository.Tx, op *Op, arrived time.Time) error {
 		}
 		touched[repository.RowKey{Entity: row.Key.Entity, ID: row.Key.ID}] = true
 	}
+	// A set whose every field is personal resolves no row (F25): record its commitments anyway, and refresh the row if it
+	// exists. If the row arrives later, rederive reads the recorded commitments.
+	for k, ws := range writes {
+		if touched[k] {
+			continue
+		}
+		if err := tx.AddPIIWrites(k.Entity, k.ID, ws); err != nil {
+			return err
+		}
+		r, ok, err := tx.GetRow(k.Entity, k.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		if err := s.derivePII(tx, mustRegistry().Entities[k.Entity], &r); err != nil {
+			return err
+		}
+		if err := tx.PutRow(r); err != nil {
+			return err
+		}
+	}
 	return s.detect(tx, op, touched, arrived)
 }
 
